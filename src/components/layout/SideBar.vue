@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { isMac } from "@/utils/config";
 import type { SMenuItem } from "@/components/ui/SMenu.vue";
 import type { SSelectOption } from "@/components/ui/SSelect.vue";
 import type { DropdownMenuItem } from "@/components/ui/SDropdownMenu.vue";
@@ -346,7 +347,13 @@ onMounted(() => {
 
 <template>
   <div class="flex flex-col h-full">
-    <SideBarLogo :collapsed="sidebarCollapsed" />
+    <!-- 为系统红黄绿按钮保留左上角标题栏区域 -->
+    <div
+      v-if="isMac && systemSettings.system.borderlessWindow"
+      class="h-16 shrink-0 app-drag-region"
+      aria-hidden="true"
+    />
+    <SideBarLogo v-else :collapsed="sidebarCollapsed" />
     <SContextMenu :items="contextMenuItems" @select="onContextMenuSelect">
       <div
         class="flex-1 min-h-0 pb-3 overflow-y-auto transition-[padding] duration-300"

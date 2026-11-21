@@ -11,6 +11,8 @@ export const albumToCoverItem = (album: Album): CoverItem => ({
   cover: album.cover,
   subtitle: album.artist ?? "",
   trackCount: album.trackCount ?? 0,
+  year: album.year,
+  folderPaths: album.folderPaths,
 });
 
 /**

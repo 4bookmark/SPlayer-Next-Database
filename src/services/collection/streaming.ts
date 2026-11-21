@@ -18,7 +18,8 @@ export const loadStreamingCollection = async (
   const originalId = decodeURIComponent(id);
   const fallbackName = options.fallbackName ?? originalId;
   if (type === "album") {
-    const album = store.albums.find(
+    const snapshot = serverId ? await window.api.streaming.getSnapshot(serverId) : undefined;
+    const album = (snapshot?.albums ?? store.albums).find(
       (item) => item.id === originalId && (item.serverId ?? store.activeServerId) === serverId,
     );
     const tracks = await store.fetchAlbumSongs(originalId, serverId);
@@ -27,6 +28,7 @@ export const loadStreamingCollection = async (
       id: originalId,
       type,
       source: "streaming",
+      serverId: serverId ?? undefined,
       title: album?.name ?? fallbackName,
       cover: album?.cover ?? tracks[0]?.cover,
       creator: album?.artist,

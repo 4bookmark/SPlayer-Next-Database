@@ -1,3 +1,5 @@
+import { buildAirplay } from "./build-airplay";
+import { buildLanDiscovery } from "./build-lan-discovery";
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -111,6 +113,11 @@ for (const mod of modules) {
   const result = spawnSync(process.execPath, [napiCliEntry, "build", ...napiArgs], {
     stdio: "inherit",
     cwd,
+    // 旧版 Rust 的符号裁剪会破坏 Mach-O 对齐，导致 macOS 27 拒绝加载原生模块
+    env:
+      process.platform === "darwin" && !options.isDev
+        ? { ...process.env, CARGO_PROFILE_RELEASE_STRIP: "none" }
+        : process.env,
   });
 
   if (result.error) {
@@ -126,3 +133,6 @@ for (const mod of modules) {
     process.exit(result.status ?? 1);
   }
 }
+
+if (process.platform === "darwin") buildAirplay();
+buildLanDiscovery(process.env.npm_config_arch || process.arch);

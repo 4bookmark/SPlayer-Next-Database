@@ -1,0 +1,6 @@
+# syntax=docker/dockerfile:1
+# 调用时必须传入 NAS 现有镜像的准确引用（优先使用 digest），保留原运行环境。
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+# 构建上下文内 gonic 必须是与 NAS 架构一致的 Linux 静态二进制。
+COPY --chmod=0755 gonic /usr/local/bin/gonic

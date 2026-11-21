@@ -1,5 +1,5 @@
 import { createPinia, disposePinia, getActivePinia, setActivePinia } from "pinia";
-import { nextTick } from "vue";
+import { nextTick, reactive, ref } from "vue";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Track } from "@shared/types/player";
 import type { StreamingFavoriteChange } from "@shared/types/streaming";
@@ -13,6 +13,7 @@ const state = vi.hoisted(() => ({
   snapshot: vi.fn(),
   unsubscribe: vi.fn(),
   load: vi.fn(),
+  organize: vi.fn(),
 }));
 vi.mock("@/stores/media", async () => {
   const { shallowReactive } = await import("vue");
@@ -68,6 +69,9 @@ beforeEach(() => {
     api: {
       streaming: {
         loadServers: state.load,
+        getCatalog: vi.fn(async () => ({ songs: [], albums: [], artists: [] })),
+        getSavedFavorites: vi.fn(async () => ({ songs: [], albums: [], artists: [] })),
+        organize: state.organize,
         getFavorite: state.getFavorite,
         setFavorite: state.setFavorite,
         getSnapshot: state.snapshot,
@@ -86,6 +90,71 @@ beforeEach(() => {
 afterEach(() => disposePinia(getActivePinia()!));
 
 describe("流媒体收藏与快照状态", () => {
+  it("跨来源目录迟到读取不能恢复旧服务器内容，喜欢事件不被旧目录覆盖", async () => {
+    const store = useStreamingStore();
+    await store.init();
+    const api = vi.mocked(window.api.streaming.getCatalog);
+    let finish!: (value: import("@shared/types/streaming").StreamingCatalog) => void;
+    api.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const old = store.refreshCatalog();
+    api.mockResolvedValueOnce({ songs: [], albums: [], artists: [] });
+    await store.refreshCatalog();
+    finish({ songs: [track], albums: [], artists: [] });
+    await old;
+    expect(store.catalog.songs).toEqual([]);
+    store.catalog = { songs: [track], albums: [], artists: [] };
+    api.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const beforeLike = store.refreshCatalog();
+    state.favoriteChanged!({ serverId: "server", trackId: "song", favorite: true });
+    finish({ songs: [track], albums: [], artists: [] });
+    await beforeLike;
+    expect(store.catalog.songs[0].favorite).toBe(true);
+  });
+  it("喜欢事件刷新跨服务器汇总，迟到的汇总请求不能复活已取消的喜欢", async () => {
+    const store = useStreamingStore();
+    await store.init();
+    let finish!: (value: import("@shared/types/streaming").StreamingSavedFavorites) => void;
+    const api = vi.mocked(window.api.streaming.getSavedFavorites);
+    api.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const old = store.refreshSavedFavorites();
+    api.mockResolvedValueOnce({ songs: [], albums: [], artists: [] });
+    await store.refreshSavedFavorites();
+    finish({ songs: [{ ...track, favorite: true }], albums: [], artists: [] });
+    await old;
+    expect(store.savedFavorites.songs).toEqual([]);
+    api.mockResolvedValueOnce({ songs: [{ ...track, favorite: true }], albums: [], artists: [] });
+    state.favoriteChanged!({ serverId: "server", trackId: "song", favorite: true });
+    await nextTick();
+    await Promise.resolve();
+    expect(store.savedFavorites.songs[0]?.id).toBe(track.id);
+  });
+  it("收藏合集使用对象所属服务器而非当前激活服务器", async () => {
+    const store = useStreamingStore();
+    await store.init();
+    store.activeServerId = "other";
+    await store.setCollectionFavorite("artist", "server", "artist", true);
+    expect(state.organize).toHaveBeenCalledWith("server", {
+      type: "favorite-artist",
+      id: "artist",
+      favorite: true,
+    });
+  });
+
   it("不同曲目的并发读取和写入互不作废", async () => {
     const store = useStreamingStore();
     const other = { ...track, id: "server:other", originalId: "other" };
@@ -212,5 +281,29 @@ describe("流媒体收藏与快照状态", () => {
     expect(state.load).toHaveBeenCalledOnce();
     store.$dispose();
     expect(state.unsubscribe).toHaveBeenCalledTimes(3);
+  });
+  it("歌手和专辑归类包含响应式选中数组时仍发送可克隆的纯数据", async () => {
+    const store = useStreamingStore();
+    await store.init();
+    store.activeServerId = "server";
+    state.organize.mockImplementation(async (_serverId, action) => {
+      expect(() => structuredClone(action)).not.toThrow();
+      return { songs: [track], albums: [], artists: [], playlists: [] };
+    });
+    const ids = ref(["a", "b"]);
+    await store.organize({ type: "artist-classify", artistIds: ids.value, categoryId: "western" });
+    await store.organize(
+      reactive({ type: "classify" as const, albumIds: ids.value, categoryId: "live" }),
+    );
+    expect(state.organize).toHaveBeenCalledWith("server", {
+      type: "artist-classify",
+      artistIds: ["a", "b"],
+      categoryId: "western",
+    });
+    expect(state.organize).toHaveBeenCalledWith("server", {
+      type: "classify",
+      albumIds: ["a", "b"],
+      categoryId: "live",
+    });
   });
 });

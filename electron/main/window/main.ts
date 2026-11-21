@@ -41,7 +41,11 @@ export const createMainWindow = (): BrowserWindow => {
     y: legacyState?.y ?? undefined,
     // 位置、尺寸与最大化状态
     ...(remember ? { name: "main-window", windowStatePersistence: true } : {}),
-    frame: !borderlessWindow,
+    // macOS 保留系统窗口按钮，隐藏标题文字后让内容延伸到标题栏
+    frame: process.platform === "darwin" || !borderlessWindow,
+    ...(process.platform === "darwin" && borderlessWindow
+      ? { titleBarStyle: "hiddenInset" as const, trafficLightPosition: { x: 18, y: 25 } }
+      : {}),
     webPreferences: {
       partition: MAIN_PARTITION,
       webgl: true,
@@ -234,6 +238,8 @@ export const applyMainWindowZoom = (): void => {
   const percent = store.get("system.uiZoom") ?? 100;
   const factor = Math.max(0.5, Math.min(2, percent / 100));
   win.webContents.setZoomFactor(factor);
+  if (process.platform === "darwin" && (store.get("system.borderlessWindow") ?? true))
+    win.setWindowButtonPosition({ x: 18, y: Math.max(8, Math.round(32 * factor - 7)) });
 };
 
 /**

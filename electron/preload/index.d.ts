@@ -1,3 +1,4 @@
+import type { OutputApi } from "@shared/types/output";
 import { ElectronAPI } from "@electron-toolkit/preload";
 import { MotionCoverSource, PlayerApi, Track, TrackSource } from "@shared/types/player";
 import {
@@ -124,6 +125,7 @@ declare global {
       stats: StatsApi;
       hotkey: HotkeyApi;
       streaming: StreamingApi;
+      output: OutputApi;
       recognition: RecognitionApi;
       lastfm: LastfmApi;
       externalApi: {

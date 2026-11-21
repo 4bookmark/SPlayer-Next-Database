@@ -6,6 +6,8 @@ import { useFloatingPlayerBar } from "@/composables/useFloatingPlayerBar";
 export interface CoverListProps {
   /** 列表数据 */
   items: CoverItem[];
+  selecting?: boolean;
+  selectedIds?: string[];
   /** 列表类型 */
   type?: "default" | "artist";
   /** 是否虚拟滚动 */
@@ -152,6 +154,8 @@ const getRowKey = (row: Row): string => row.id;
           v-for="item in row.items"
           :key="item.id"
           :item="item"
+          :selecting="selecting"
+          :selected="selectedIds?.includes(item.id)"
           :type="type"
           :rounded="rounded"
           :fallback="fallback"
@@ -174,6 +178,8 @@ const getRowKey = (row: Row): string => row.id;
       v-for="item in items"
       :key="item.id"
       :item="item"
+      :selecting="selecting"
+      :selected="selectedIds?.includes(item.id)"
       :type="type"
       :rounded="rounded"
       :fallback="fallback"

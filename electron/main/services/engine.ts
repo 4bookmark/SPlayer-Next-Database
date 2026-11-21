@@ -1,3 +1,4 @@
+import { createOutputFacade } from "./output/controller";
 import { loadNativeModule } from "@main/utils/nativeLoader";
 import { getCoverCacheDir, isDev } from "@main/utils/config";
 import { playerLog, nativeLogsDir } from "@main/utils/logger";
@@ -53,7 +54,7 @@ export const onPlayerCreated = (callback: (inst: PlayerInstance) => void): void 
 export const getPlayer = (): PlayerInstance => {
   if (!playerInstance) {
     const mod = getEngine();
-    playerInstance = new mod.AudioPlayer();
+    playerInstance = createOutputFacade(new mod.AudioPlayer());
     playerInstance.setCoverCacheDir(getCoverCacheDir());
     for (const cb of onCreatedCallbacks) {
       cb(playerInstance);

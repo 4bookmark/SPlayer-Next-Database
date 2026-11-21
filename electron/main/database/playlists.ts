@@ -8,6 +8,18 @@ import type {
 } from "@shared/types/playlist";
 import { getDb } from "@main/database";
 import { getTracksByIds } from "@main/database/queries";
+import { getStreamingTracksByIds } from "./streaming/tracks";
+import type { Track } from "@shared/types/player";
+
+/**
+ * 合并本机与媒体源的实时歌曲引用，不保存过期 URL 或复制音频
+ * @param ids - 歌单歌曲 ID
+ * @returns 可用歌曲
+ */
+const resolvePlaylistTracks = (ids: string[]): Track[] => [
+  ...getTracksByIds(ids),
+  ...getStreamingTracksByIds(ids),
+];
 
 interface PlaylistRow {
   id: string;
@@ -45,7 +57,11 @@ const SELECT_PLAYLIST = `
     p.cover,
     p.created_at,
     p.updated_at,
-    COUNT(pt.track_id) AS track_count
+    COUNT(CASE WHEN EXISTS (SELECT 1 FROM tracks t WHERE t.id = pt.track_id)
+      OR EXISTS (SELECT 1 FROM remote_tracks r
+        WHERE r.server_id = substr(pt.track_id, 1, instr(pt.track_id, ':') - 1)
+        AND r.remote_id = substr(pt.track_id, instr(pt.track_id, ':') + 1))
+      THEN pt.track_id END) AS track_count
   FROM playlists p
   LEFT JOIN playlist_tracks pt ON pt.playlist_id = p.id
 `;
@@ -74,12 +90,11 @@ export const getPlaylist = (id: string): PlaylistDetail | null => {
     .prepare(
       `SELECT pt.track_id
        FROM playlist_tracks pt
-       INNER JOIN tracks t ON t.id = pt.track_id
        WHERE pt.playlist_id = ?
        ORDER BY pt.position, pt.added_at, pt.track_id`,
     )
     .all(id) as { track_id: string }[];
-  const fetched = getTracksByIds(trackIds.map((item) => item.track_id));
+  const fetched = resolvePlaylistTracks(trackIds.map((item) => item.track_id));
   const byId = new Map(fetched.map((track) => [track.id, track]));
   return {
     ...toSummary(row),
@@ -150,9 +165,9 @@ export const deletePlaylist = (id: string): void => {
 };
 
 /**
- * 添加本地歌曲到歌单
+ * 添加本机或媒体源歌曲到本地歌单
  * @param id - 歌单 ID
- * @param trackIds - 本地歌曲 ID
+ * @param trackIds - 本机或带服务器前缀的歌曲 ID
  * @returns 实际新增数量
  */
 export const addPlaylistTracks = (id: string, trackIds: string[]): number => {
@@ -166,9 +181,11 @@ export const addPlaylistTracks = (id: string, trackIds: string[]): number => {
       .prepare("SELECT track_id FROM playlist_tracks WHERE playlist_id = ?")
       .all(id) as { track_id: string }[];
     const existingIds = new Set(existing.map((item) => item.track_id));
+    const available = resolvePlaylistTracks(uniqueIds);
+    const availableIds = new Set(available.map((track) => track.id));
     const validIds = uniqueIds.filter((trackId) => {
       if (existingIds.has(trackId)) return false;
-      return Boolean(database.prepare("SELECT 1 FROM tracks WHERE id = ?").get(trackId));
+      return availableIds.has(trackId);
     });
     if (validIds.length === 0) return 0;
     database
@@ -180,14 +197,10 @@ export const addPlaylistTracks = (id: string, trackIds: string[]): number => {
     );
     const now = Date.now();
     validIds.forEach((trackId, position) => insert.run(id, trackId, position, now));
-    const coverRow = database
-      .prepare(
-        `SELECT cover FROM tracks WHERE id IN (${validIds.map(() => "?").join(",")}) AND cover IS NOT NULL LIMIT 1`,
-      )
-      .get(...validIds) as { cover?: string } | undefined;
+    const cover = available.find((track) => validIds.includes(track.id) && track.cover)?.cover;
     database
       .prepare("UPDATE playlists SET cover = COALESCE(?, cover), updated_at = ? WHERE id = ?")
-      .run(coverRow?.cover ?? null, now, id);
+      .run(cover ?? null, now, id);
     return validIds.length;
   })();
 };
@@ -270,4 +283,14 @@ export const clearPlaylists = (): void => {
     database.prepare("DELETE FROM playlist_tracks").run();
     database.prepare("DELETE FROM playlists").run();
   })();
+};
+
+/**
+ * 服务器身份移除前清除歌单引用，防止新账号相同 ID 指向另一首歌
+ * @param serverId - 被移除或更换身份的服务器
+ */
+export const removeServerPlaylistTracks = (serverId: string): void => {
+  getDb()
+    .prepare("DELETE FROM playlist_tracks WHERE substr(track_id, 1, length(?) + 1) = ? || ':'")
+    .run(serverId, serverId);
 };

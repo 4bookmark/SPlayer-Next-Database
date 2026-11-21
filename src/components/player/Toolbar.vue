@@ -122,6 +122,7 @@ const onMoreMenuSelect = (key: string): void => {
         </div>
       </SPopover>
     </div>
+    <PlaybackDevices :cover="cover" />
     <SButton
       :type="lyricButtonType"
       :variant="isDesktopLyricOpen ? 'tertiary' : 'ghost'"

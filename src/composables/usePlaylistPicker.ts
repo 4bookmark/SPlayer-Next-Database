@@ -20,7 +20,7 @@ export const usePlaylistPicker = () => {
 
   /**
    * 打开添加到歌单弹窗
-   * @param items - 待添加曲目，需同源（local 或 netease）
+   * @param items - 待添加曲目，网易歌曲进入在线歌单，其余本机和媒体源歌曲进入本地歌单
    */
   const openPicker = (items: Track[]): void => {
     if (items.length === 0) return;

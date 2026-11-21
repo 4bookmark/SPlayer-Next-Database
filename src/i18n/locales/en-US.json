@@ -641,6 +641,7 @@
   "liked": {
     "title": "Liked Songs",
     "tabs": {
+      "library": "Local & media servers",
       "local": "Local",
       "online": "Online"
     },
@@ -758,7 +759,16 @@
     "foldersDescription": "Songs are automatically synced when added or removed",
     "removeFolder": "Remove Directory",
     "removeFolderConfirm": "Removing this directory will delete its songs from the library!",
-    "nestedHint": "Folder is nested with an existing one; skipped"
+    "nestedHint": "Folder is nested with an existing one; skipped",
+    "sources": {
+      "all": "All sources",
+      "local": "Local",
+      "organizeHint": "Select one media source to organize categories and merge artists"
+    },
+    "noUnifiedData": "No content yet",
+    "noUnifiedDataHint": "Add local music or sync a media server to see it here",
+    "switchToAlbums": "Switch to album covers",
+    "switchToSongs": "Switch to song list"
   },
   "settings": {
     "title": "Settings",
@@ -2404,7 +2414,9 @@
         "copyId": "Copy Cloud ID",
         "copyUrl": "Share Cloud Link"
       }
-    }
+    },
+    "switchToCards": "Switch to cover list",
+    "switchToCompact": "Switch to compact list"
   },
   "artist": {
     "label": "Artists",
@@ -2445,7 +2457,8 @@
     "favoriteHour": "You listen most often at {hour}:00, with {count} tracks in total",
     "noPlayHistory": "No listening-hour data yet",
     "listeningActivity": "Listening Activity",
-    "last90Days": "Last 90 days"
+    "last90Days": "Last 90 days",
+    "knownSizeOnly": "Known sizes only; {count} tracks unavailable"
   },
   "errors": {
     "PERMISSION_DENIED": "This account does not have permission to perform this action",
@@ -2494,5 +2507,70 @@
       "discNumber": "Disc No.",
       "lyrics": "Embedded Lyrics"
     }
+  },
+  "organization": {
+    "mergeArtists": "Merge artists",
+    "chooseTarget": "Choose the artist to keep from your selection. Saved locally.",
+    "merge": "Merge",
+    "unmerge": "Undo merge",
+    "select": "Select",
+    "selectAll": "Select all",
+    "selected": "{count} selected",
+    "selectedOne": "Selected",
+    "saved": "Saved",
+    "all": "All",
+    "uncategorized": "Uncategorized",
+    "manageCategories": "Manage categories",
+    "moveTo": "Move to category",
+    "categoryName": "Custom category name",
+    "rename": "Rename",
+    "add": "Add",
+    "delete": "Delete",
+    "deleteHint": "Deleting a category returns its albums to Uncategorized",
+    "timeline": "Timeline",
+    "oldestFirst": "Oldest first",
+    "newestFirst": "Newest first",
+    "unknownYear": "Year unknown",
+    "categories": {
+      "album": "Albums",
+      "compilation": "Compilations",
+      "single-ep": "Singles & EPs",
+      "live": "Live",
+      "soundtrack": "Soundtracks"
+    },
+    "resetAutomatic": "Use automatic category",
+    "manageArtistCategories": "Manage artist categories",
+    "artistCategoryHint": "Organize by region or your own system, such as Mainland China, Hong Kong & Taiwan, Western, or Japan & Korea. Deleting a category leaves its artists uncategorized.",
+    "assign": "Assign"
+  },
+  "output": {
+    "title": "Playback devices",
+    "local": "This Mac",
+    "scan": "Scan again",
+    "scanning": "Discovering devices…",
+    "empty": "No UPnP / Sonos / Chromecast devices found. Check the local network.",
+    "airplayPicker": "Choose an AirPlay 2 receiver in macOS",
+    "systemOutput": "Local audio output",
+    "remoteHint": "Remote receivers handle playback; local EQ, speed, spectrum and mixing do not apply.",
+    "selected": "Selected output"
+  },
+  "artwork": {
+    "open": "View album artwork",
+    "serverCover": "Current artwork",
+    "previous": "Previous artwork",
+    "next": "Next artwork",
+    "directoryHint": "Read album artwork through your media server. Cover and folder images come first. NAS files stay unchanged.",
+    "chooseDirectory": "Choose music folder",
+    "selectionHint": "Choose an image from this album folder, then confirm to use it as the album artwork",
+    "restoreDefault": "Restore default artwork",
+    "chooseCover": "Choose album artwork",
+    "foundCount": "{count} images in album folder",
+    "currentCover": "Current artwork",
+    "unreadable": "Image unavailable",
+    "unreadableHint": "These files exist but cannot currently be read or decoded. Available artwork appears above.",
+    "directoryUnavailable": "The album folder is unavailable. Showing the saved artwork.",
+    "authFailed": "Authentication failed or artwork access was denied. Check your media server settings.",
+    "extensionUnavailable": "Multiple artwork is not enabled on this server. Showing the default artwork.",
+    "requestFailed": "Unable to read artwork from the server. Check your connection or account and try again."
   }
 }

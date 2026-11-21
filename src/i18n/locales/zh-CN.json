@@ -641,11 +641,12 @@
   "liked": {
     "title": "我喜欢的音乐",
     "tabs": {
+      "library": "本地与媒体源",
       "local": "本地",
       "online": "在线"
     },
     "empty": {
-      "local": "还没有收藏的本地歌曲，点击歌曲右侧的红心试试",
+      "local": "还没有喜欢的本地或媒体源歌曲，点击歌曲右侧的红心试试",
       "online": "还没有喜欢的在线音乐"
     },
     "needLogin": "登录后才能查看在线喜欢的音乐",
@@ -758,7 +759,16 @@
     "foldersDescription": "文件夹内歌曲增删自动同步",
     "removeFolder": "移除此目录",
     "removeFolderConfirm": "移除该目录后，其中的歌曲将从音乐库中删除！",
-    "nestedHint": "该目录与已添加目录嵌套，已自动跳过"
+    "nestedHint": "该目录与已添加目录嵌套，已自动跳过",
+    "sources": {
+      "all": "全部来源",
+      "local": "本地",
+      "organizeHint": "筛选到单个媒体源后，可整理分类和合并"
+    },
+    "noUnifiedData": "暂无内容",
+    "noUnifiedDataHint": "添加本地音乐或同步媒体源后将在这里显示",
+    "switchToAlbums": "切换到专辑封面视图",
+    "switchToSongs": "切换到歌曲列表"
   },
   "settings": {
     "title": "设置",
@@ -2404,7 +2414,9 @@
         "copyId": "复制云盘 ID",
         "copyUrl": "分享云盘链接"
       }
-    }
+    },
+    "switchToCards": "切换为封面列表",
+    "switchToCompact": "切换为紧凑列表"
   },
   "artist": {
     "label": "艺术家",
@@ -2445,7 +2457,8 @@
     "favoriteHour": "你最喜欢在 {hour}:00 听歌，共计 {count} 首",
     "noPlayHistory": "暂无播放时段数据",
     "listeningActivity": "聆听足迹",
-    "last90Days": "近 90 天"
+    "last90Days": "近 90 天",
+    "knownSizeOnly": "仅含已知大小，{count} 首未提供"
   },
   "errors": {
     "PERMISSION_DENIED": "当前账号没有执行此操作的权限",
@@ -2494,5 +2507,70 @@
       "discNumber": "碟号",
       "lyrics": "内嵌歌词"
     }
+  },
+  "organization": {
+    "mergeArtists": "合并歌手",
+    "chooseTarget": "从选中的歌手中选择合并后保留的名称，仅在本地生效",
+    "merge": "合并",
+    "unmerge": "撤销合并",
+    "select": "选择",
+    "selectAll": "全选",
+    "selected": "已选 {count} 项",
+    "selectedOne": "已选择",
+    "saved": "已保存",
+    "all": "全部",
+    "uncategorized": "未分类",
+    "manageCategories": "管理分类",
+    "moveTo": "移动到分类",
+    "categoryName": "自定义分类名称",
+    "rename": "重命名",
+    "add": "新增",
+    "delete": "删除",
+    "deleteHint": "删除自定义分类后，其专辑回到未分类",
+    "timeline": "时间线",
+    "oldestFirst": "从旧到新",
+    "newestFirst": "从新到旧",
+    "unknownYear": "未标注年份",
+    "categories": {
+      "album": "专辑",
+      "compilation": "精选辑",
+      "single-ep": "单曲 & EP",
+      "live": "现场",
+      "soundtrack": "原声带"
+    },
+    "resetAutomatic": "恢复自动分类",
+    "manageArtistCategories": "管理歌手分类",
+    "artistCategoryHint": "按地区或自己的习惯整理，例如：华语内地、港台、欧美、日韩。删除分类后，歌手回到未分类",
+    "assign": "归类"
+  },
+  "output": {
+    "title": "播放设备",
+    "local": "此 Mac",
+    "scan": "重新扫描",
+    "scanning": "正在发现局域网设备…",
+    "empty": "未发现 UPnP / Sonos / Chromecast 设备，请确认与此 Mac 在同一局域网",
+    "airplayPicker": "通过 macOS 选择 AirPlay 2 接收设备",
+    "systemOutput": "使用本机音频输出",
+    "remoteHint": "远程播放由接收端处理；本机 EQ、变速、频谱与混音不会作用于接收端",
+    "selected": "当前播放设备"
+  },
+  "artwork": {
+    "open": "查看专辑封面",
+    "serverCover": "当前封面",
+    "previous": "上一张封面",
+    "next": "下一张封面",
+    "directoryHint": "通过媒体服务器读取专辑图片，cover 和 folder 优先，不修改 NAS 文件",
+    "chooseDirectory": "选择 NAS 音乐目录",
+    "selectionHint": "只显示专辑目录当前层的图片，选中后点确定设为主封面",
+    "restoreDefault": "恢复默认封面",
+    "chooseCover": "选择主封面",
+    "foundCount": "目录中有 {count} 张图片",
+    "currentCover": "当前主封面",
+    "unreadable": "暂时无法读取",
+    "unreadableHint": "服务器暂时无法读取或解码这些图片，可用封面显示在上方",
+    "directoryUnavailable": "暂时无法读取专辑目录，当前显示已保存的封面",
+    "authFailed": "账号验证失败或没有封面读取权限，请检查媒体服务器设置",
+    "extensionUnavailable": "服务器尚未启用多封面功能，当前显示默认封面",
+    "requestFailed": "暂时无法从服务器读取封面，请检查连接或账号后重试"
   }
 }

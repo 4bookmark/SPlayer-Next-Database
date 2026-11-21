@@ -64,6 +64,12 @@ const config: Configuration = {
   electronLanguages: ["zh-CN", "en-US"],
   asarUnpack: ["public/**"],
   extraResources: [
+    ...(process.platform === "darwin"
+      ? [
+          { from: "native/airplay-helper/airplay-helper", to: "airplay-helper" },
+          { from: "native/lan-discovery/lan-discovery", to: "lan-discovery" },
+        ]
+      : []),
     {
       from: "native/audio-engine",
       to: "native",
@@ -103,7 +109,7 @@ const config: Configuration = {
   extraFiles: [
     {
       from: "LICENSE",
-      to: "LICENSE",
+      to: process.platform === "darwin" ? "Resources/LICENSE" : "LICENSE",
     },
   ],
   win: {
@@ -146,6 +152,9 @@ const config: Configuration = {
     category: "public.app-category.music",
     entitlementsInherit: "public/entitlements.mac.plist",
     extendInfo: {
+      NSLocalNetworkUsageDescription:
+        "发现并连接局域网音乐服务器、Sonos、Chromecast 与 AirPlay 播放设备",
+      NSBonjourServices: ["_googlecast._tcp", "_sonos._tcp", "_airplay._tcp", "_raop._tcp"],
       NSCameraUsageDescription: "Application requests access to the device's camera.",
       NSMicrophoneUsageDescription: "Application requests access to the device's microphone.",
       NSDocumentsFolderUsageDescription:

@@ -52,17 +52,19 @@ export interface TopTrack {
   playCount: number;
 }
 
-/** 音乐库统计概览（本地曲库） */
+/** 音乐库统计概览（本地与全部媒体源） */
 export interface LibraryStats {
   /** 歌曲总数（不含被 CUE 分轨引用的容器整轨） */
   trackCount: number;
-  /** 专辑数量（按专辑名去重） */
+  /** 专辑数量（本地按名称，媒体源按服务器与资源身份） */
   albumCount: number;
-  /** 歌手数量（按歌手名去重） */
+  /** 歌手数量（媒体源应用本地合并规则后统计） */
   artistCount: number;
   /** 总时长（毫秒） */
   totalDurationMs: number;
-  /** 总文件大小（字节） */
+  /** 文件大小未知的曲目数 */
+  unknownFileSizeCount?: number;
+  /** 已知的总文件大小（字节） */
   totalFileSize: number;
   /** 格式（编码）分布，按曲目数倒序 */
   codecs: { codec: string; count: number }[];

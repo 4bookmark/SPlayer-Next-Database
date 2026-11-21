@@ -2,6 +2,7 @@
  * 歌手页加载服务：按 source 派发到具体来源
  */
 
+import { resolveArtistId, emptyOrganization } from "@shared/utils/artistGroups";
 import type { TrackSource } from "@shared/types/player";
 import type { ArtistProfile } from "@/types/artist";
 import { useLibraryStore } from "@/stores/library";
@@ -84,9 +85,14 @@ const loadLocal = async (id: string, options: LoadArtistOptions): Promise<void> 
  */
 const loadStreaming = async (id: string, options: LoadArtistOptions): Promise<void> => {
   const streamingStore = useStreamingStore();
-  const artistId = decodeURIComponent(id);
   const serverId = options.serverId ?? streamingStore.activeServerId;
-  const cached = streamingStore.artists.find(
+  const snapshot = serverId ? await window.api.streaming.getSnapshot(serverId) : undefined;
+  if (options.signal?.aborted) return;
+  const artistId = resolveArtistId(
+    snapshot?.organization ?? emptyOrganization(),
+    decodeURIComponent(id),
+  );
+  const cached = (snapshot?.artists ?? streamingStore.artists).find(
     (a) => a.id === artistId && (a.serverId ?? streamingStore.activeServerId) === serverId,
   );
   const fallbackName = options.fallbackName ?? artistId;
@@ -101,7 +107,12 @@ const loadStreaming = async (id: string, options: LoadArtistOptions): Promise<vo
     avatar: cached?.avatar,
     source: "streaming",
     tracks,
-    albums: albumsToCoverItems(albums),
+    albums: albumsToCoverItems(
+      albums.map((album) => ({
+        ...album,
+        cover: snapshot?.albums.find((cached) => cached.id === album.id)?.cover ?? album.cover,
+      })),
+    ),
     trackCount: tracks.length,
     albumCount: albums.length,
   });

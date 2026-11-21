@@ -95,7 +95,7 @@ const router = createRouter({
         {
           path: "streaming",
           component: () => import("@/pages/Streaming/Index.vue"),
-          redirect: "/streaming/songs",
+          redirect: "/streaming/artists",
           children: [
             {
               path: "songs",

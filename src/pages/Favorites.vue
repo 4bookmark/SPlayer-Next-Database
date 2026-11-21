@@ -3,6 +3,7 @@ defineOptions({ name: "Favorites" });
 
 import type { CoverItem } from "@/types/artist";
 import { useUserStore } from "@/stores/user";
+import { useStreamingStore } from "@/stores/streaming";
 import {
   albumsToCoverItems,
   artistsToCoverItems,
@@ -18,6 +19,13 @@ const { t } = useI18n();
 const route = useRoute();
 const router = useRouter();
 const user = useUserStore();
+const streaming = useStreamingStore();
+onMounted(() => {
+  void streaming.init().then(() => streaming.refreshSavedFavorites());
+});
+onActivated(() => {
+  void streaming.refreshSavedFavorites();
+});
 
 type FavTab = "playlist" | "album" | "artist";
 
@@ -48,9 +56,25 @@ const playlistItems = computed<CoverItem[]>(() =>
   })),
 );
 
-const albumItems = computed<CoverItem[]>(() => albumsToCoverItems(user.albums));
+const albumItems = computed<CoverItem[]>(() => [
+  ...streaming.savedFavorites.albums.map((album) => ({
+    ...albumsToCoverItems([album])[0],
+    source: "streaming" as const,
+    serverId: album.serverId,
+    id: `streaming:${album.serverId}:${album.id}`,
+  })),
+  ...albumsToCoverItems(user.albums),
+]);
 
-const artistItems = computed<CoverItem[]>(() => artistsToCoverItems(user.artists));
+const artistItems = computed<CoverItem[]>(() => [
+  ...streaming.savedFavorites.artists.map((artist) => ({
+    ...artistsToCoverItems([artist])[0],
+    source: "streaming" as const,
+    serverId: artist.serverId,
+    id: `streaming:${artist.serverId}:${artist.id}`,
+  })),
+  ...artistsToCoverItems(user.artists),
+]);
 
 const currentItems = computed<CoverItem[]>(() => {
   if (activeTab.value === "playlist") return playlistItems.value;
@@ -80,6 +104,17 @@ const countMeta = computed(() => {
 });
 
 const handleClick = (item: CoverItem): void => {
+  if (item.source === "streaming" && item.serverId) {
+    const id = item.id.slice(`streaming:${item.serverId}:`.length);
+    router.push({
+      path:
+        activeTab.value === "artist"
+          ? `/artist/streaming/${encodeURIComponent(id)}`
+          : `/collection/streaming/album/${encodeURIComponent(id)}`,
+      query: { serverId: item.serverId, name: item.title },
+    });
+    return;
+  }
   if (activeTab.value === "artist") {
     router.push(`/artist/netease/${encodeURIComponent(item.id)}`);
   } else {
@@ -98,7 +133,7 @@ const handleClick = (item: CoverItem): void => {
         </h1>
         <Transition name="fade" mode="out-in">
           <span
-            v-if="user.isLoggedIn"
+            v-if="user.isLoggedIn || currentItems.length"
             :key="activeTab"
             class="flex items-center gap-1.5 text-sm text-on-surface-variant/50 truncate"
           >
@@ -110,7 +145,10 @@ const handleClick = (item: CoverItem): void => {
       <STabs :model-value="activeTab" :tabs="tabs" @update:model-value="onTabSwitch" />
     </div>
     <!-- 未登录 -->
-    <div v-if="!user.isLoggedIn" class="flex-1 flex items-center justify-center">
+    <div
+      v-if="!user.isLoggedIn && !currentItems.length && activeTab === 'playlist'"
+      class="flex-1 flex items-center justify-center"
+    >
       <div class="text-center text-on-surface-variant/60">
         <IconMaterialSymbolsFavoriteOutline class="size-12 mx-auto mb-3 opacity-30" />
         <div class="text-sm">{{ t("favorites.notLogin") }}</div>

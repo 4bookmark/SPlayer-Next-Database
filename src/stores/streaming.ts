@@ -1,3 +1,5 @@
+import type { StreamingOrganization, OrganizationAction } from "@shared/types/streaming";
+import { emptyOrganization } from "@shared/utils/artistGroups";
 import type { Album, Artist, Playlist, Track } from "@shared/types/player";
 import type {
   StreamingErrorCode,
@@ -35,6 +37,40 @@ export const useStreamingStore = defineStore("streaming", () => {
   const albums = shallowRef<Album[]>([]);
   const artists = shallowRef<Artist[]>([]);
   const playlists = shallowRef<Playlist[]>([]);
+  const organization = shallowRef<StreamingOrganization>(emptyOrganization());
+  const savedFavorites = shallowRef<import("@shared/types/streaming").StreamingSavedFavorites>({
+    songs: [],
+    albums: [],
+    artists: [],
+  });
+  let savedFavoriteSequence = 0;
+  /** 从主进程读取跨服务器收藏，迟到请求不得覆盖较新的操作 */
+  const refreshSavedFavorites = async (): Promise<void> => {
+    const sequence = ++savedFavoriteSequence;
+    try {
+      const result = await window.api.streaming.getSavedFavorites();
+      if (sequence === savedFavoriteSequence) savedFavorites.value = result;
+    } catch (error) {
+      console.error("[streaming] favorites failed", error);
+    }
+  };
+  /** 统一曲库目录，按已配置服务器数量界定生命周期 */
+  const catalog = shallowRef<import("@shared/types/streaming").StreamingCatalog>({
+    songs: [],
+    albums: [],
+    artists: [],
+  });
+  let catalogSequence = 0;
+  /** 刷新跨服务器目录，迟到读取不得恢复已删除服务器的数据 */
+  const refreshCatalog = async (): Promise<void> => {
+    const sequence = ++catalogSequence;
+    try {
+      const result = await window.api.streaming.getCatalog();
+      if (sequence === catalogSequence) catalog.value = result;
+    } catch (error) {
+      console.error("[streaming] catalog failed", error);
+    }
+  };
   const indexedSongs = computed(() => new Map(songs.value.map((track) => [track.id, track])));
   let initialized = false;
   let initPromise: Promise<void> | undefined;
@@ -56,6 +92,7 @@ export const useStreamingStore = defineStore("streaming", () => {
     albums.value = [];
     artists.value = [];
     playlists.value = [];
+    organization.value = emptyOrganization();
     loading.value = false;
     syncError.value = "";
     favoriteOverrides.value = new Map();
@@ -66,6 +103,7 @@ export const useStreamingStore = defineStore("streaming", () => {
    * @param change - 服务端确认的变更
    */
   const applyFavorite = (change: StreamingFavoriteChange): void => {
+    void refreshSavedFavorites();
     const id = `${change.serverId}:${change.trackId}`;
     const read = favoriteRequests.get(id);
     const write = togglingFavorites.get(id);
@@ -76,6 +114,13 @@ export const useStreamingStore = defineStore("streaming", () => {
     overrides.set(id, { favorite: change.favorite, revision: ++favoriteRevision });
     while (overrides.size > 1024) overrides.delete(overrides.keys().next().value!);
     favoriteOverrides.value = overrides;
+    catalogSequence++;
+    catalog.value = {
+      ...catalog.value,
+      songs: catalog.value.songs.map((track) =>
+        track.id === id ? { ...track, favorite: change.favorite } : track,
+      ),
+    };
     songs.value = songs.value.map((track) =>
       track.id === id ? { ...track, favorite: change.favorite } : track,
     );
@@ -182,6 +227,7 @@ export const useStreamingStore = defineStore("streaming", () => {
     const list = [...servers.value];
     list[idx] = updated;
     servers.value = list;
+    await Promise.all([refreshSavedFavorites(), refreshCatalog()]);
     if (
       previous?.url !== updated.url ||
       previous?.type !== updated.type ||
@@ -208,6 +254,7 @@ export const useStreamingStore = defineStore("streaming", () => {
     await window.api.streaming.removeServer(id);
     removeServerTracks(id);
     servers.value = servers.value.filter((s) => s.id !== id);
+    await Promise.all([refreshSavedFavorites(), refreshCatalog()]);
     if (activeServerId.value === id) {
       activeServerId.value = null;
       connectionStatus.value = { connected: false };
@@ -323,6 +370,7 @@ export const useStreamingStore = defineStore("streaming", () => {
       albums.value = snapshot.albums;
       artists.value = snapshot.artists;
       playlists.value = snapshot.playlists;
+      organization.value = snapshot.organization ?? emptyOrganization();
       const overrides = new Map(favoriteOverrides.value);
       for (const [key, override] of overrides)
         if (key.startsWith(`${serverId}:`) && override.revision <= revision) overrides.delete(key);
@@ -334,12 +382,26 @@ export const useStreamingStore = defineStore("streaming", () => {
       const byId = indexedSongs.value;
       updateQueueTracks(
         queue.value.flatMap((track) =>
-          byId.has(track.id) ? [{ ...track, favorite: byId.get(track.id)!.favorite }] : [],
+          byId.has(track.id)
+            ? [
+                {
+                  ...track,
+                  favorite: byId.get(track.id)!.favorite,
+                  artists: byId.get(track.id)!.artists,
+                  album: byId.get(track.id)!.album,
+                },
+              ]
+            : [],
         ),
       );
       const media = useMediaStore();
       if (media.track && byId.has(media.track.id))
-        media.setTrack({ ...media.track, favorite: byId.get(media.track.id)!.favorite });
+        media.setTrack({
+          ...media.track,
+          favorite: byId.get(media.track.id)!.favorite,
+          artists: byId.get(media.track.id)!.artists,
+          album: byId.get(media.track.id)!.album,
+        });
     } catch (err) {
       console.error("[streaming] loadLibrarySnapshot failed:", err);
     }
@@ -438,6 +500,7 @@ export const useStreamingStore = defineStore("streaming", () => {
       );
       subscriptions.push(
         window.api.streaming.onLibraryUpdated(async (serverId) => {
+          await Promise.all([refreshSavedFavorites(), refreshCatalog()]);
           if (serverId !== activeServerId.value) return;
           await loadLibrarySnapshot(serverId);
           if (serverId === activeServerId.value) loading.value = false;
@@ -450,6 +513,7 @@ export const useStreamingStore = defineStore("streaming", () => {
         activeServerId.value = null;
       }
       initialized = true;
+      await Promise.all([refreshSavedFavorites(), refreshCatalog()]);
       const media = useMediaStore();
       subscriptions.push(
         watch(
@@ -471,7 +535,47 @@ export const useStreamingStore = defineStore("streaming", () => {
     return initPromise;
   };
 
+  /** 保存整理操作并重新读取原始快照生成的展示数据 */
+  const organize = async (action: OrganizationAction): Promise<void> => {
+    const serverId = activeServerId.value;
+    if (!serverId) throw new Error("没有激活的流媒体服务器");
+    await window.api.streaming.organize(
+      serverId,
+      JSON.parse(JSON.stringify(action)) as OrganizationAction,
+    );
+    await Promise.all([loadLibrarySnapshot(serverId), refreshCatalog()]);
+  };
+
+  /**
+   * 在合集所属服务器中保存本地收藏，不受当前激活服务器影响
+   * @param kind - 专辑或歌手
+   * @param serverId - 对象所属服务器
+   * @param id - 原始对象 ID
+   * @param favorite - 目标收藏状态
+   */
+  const setCollectionFavorite = async (
+    kind: "album" | "artist",
+    serverId: string,
+    id: string,
+    favorite: boolean,
+  ): Promise<void> => {
+    await window.api.streaming.organize(serverId, {
+      type: kind === "album" ? "favorite-album" : "favorite-artist",
+      id,
+      favorite,
+    });
+    await refreshSavedFavorites();
+    if (serverId === activeServerId.value) await loadLibrarySnapshot(serverId);
+  };
+
   return {
+    catalog,
+    refreshCatalog,
+    savedFavorites,
+    refreshSavedFavorites,
+    setCollectionFavorite,
+    organization,
+    organize,
     servers,
     activeServerId,
     activeServer,

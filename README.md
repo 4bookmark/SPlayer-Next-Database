@@ -1,3 +1,5 @@
+> **Personal fork snapshot (2026-11-21):** This fork archives the macOS window controls, unified media-source library, album and artist organization, favorites, and LAN output changes. See the [customization and build notes](docs/custom/README.zh-CN.md) and [fork releases](https://github.com/4bookmark/SPlayer-Next-Database/releases).
+
 <div align="center">
 
 <img alt="SPlayer-Next logo" width="120" height="120" src="public/icons/favicon.png" />

@@ -4,6 +4,8 @@ import { MAIN_PARTITION } from "@main/utils/protocol";
 import { withStreamingAdapter } from "./connection";
 import { StreamingRequestError } from "./errors";
 
+import { handleArtworkRequest } from "./artwork";
+
 const SCHEME = "streaming-cover";
 
 /**
@@ -14,6 +16,7 @@ const SCHEME = "streaming-cover";
 const handleCover = async (request: Request): Promise<Response> => {
   try {
     const url = new URL(request.url);
+    if (url.hostname === "album-artwork") return handleArtworkRequest(request);
     const serverId = url.searchParams.get("serverId");
     const coverId = url.searchParams.get("coverId");
     const size = Math.min(2000, Math.max(32, Number(url.searchParams.get("size")) || 300));

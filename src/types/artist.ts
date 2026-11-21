@@ -2,6 +2,10 @@ import type { Track, TrackSource } from "@shared/types/player";
 
 /** 封面摘要卡片 */
 export interface CoverItem {
+  source?: TrackSource;
+  serverId?: string;
+  /** 媒体源原始身份，卡片 ID 仅用于列表去重 */
+  originalId?: string;
   /** ID */
   id: string;
   /** 标题 */
@@ -12,6 +16,10 @@ export interface CoverItem {
   subtitle?: string;
   /** 歌曲数量 */
   trackCount: number;
+  /** 原始发行年份，仅在服务端提供时展示 */
+  year?: number;
+  /** 服务端目录，仅用于发行分类 */
+  folderPaths?: string[];
 }
 
 /** 歌手详情 */

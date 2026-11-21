@@ -1,8 +1,10 @@
 <script setup lang="ts">
+import AlbumOrganization from "@/components/artist/AlbumOrganization.vue";
 import type { PlaybackContext, TrackSource } from "@shared/types/player";
 import type { ArtistProfile, CoverItem } from "@/types/artist";
 import { useSettingsStore } from "@/stores/settings";
 import { useUserStore } from "@/stores/user";
+import { useStreamingStore } from "@/stores/streaming";
 import { toast } from "@/composables/useToast";
 import { loadArtist as loadArtistService } from "@/services/artistLoader";
 import { fetchArtistSongs } from "@/apis/artist/netease";
@@ -21,6 +23,10 @@ const route = useRoute();
 const router = useRouter();
 const { appearance } = useSettingsStore();
 const userStore = useUserStore();
+const streaming = useStreamingStore();
+const artistServerId = computed(() =>
+  typeof route.query.serverId === "string" ? route.query.serverId : streaming.activeServerId,
+);
 
 const tabTransitionName = computed(() => {
   const transition = appearance.routeTransition;
@@ -31,6 +37,7 @@ const source = route.params.source as TrackSource;
 const id = route.params.id as string;
 
 const artist = shallowRef<ArtistProfile | null>(null);
+const albumToolsTarget = ref<HTMLElement | null>(null);
 /** 正在加载 */
 const loading = ref(false);
 /** 错误信息 */
@@ -156,13 +163,22 @@ const handlePlayAll = () => {
   player.playFrom(artist.value.tracks, { context: playbackContext.value });
 };
 
-/** 收藏歌手仅支持 NCM */
-const canSubscribeArtist = computed(() => artist.value?.source === "netease");
+/** 网易和媒体源歌手提供收藏入口 */
+const canSubscribeArtist = computed(
+  () =>
+    artist.value?.source === "netease" ||
+    (artist.value?.source === "streaming" && !!artistServerId.value),
+);
 
 /** 当前歌手是否已收藏（依据用户收藏歌手列表） */
 const isArtistSubscribed = computed(() => {
   const current = artist.value;
-  if (!current || current.source !== "netease") return false;
+  if (!current) return false;
+  if (current.source === "streaming")
+    return streaming.savedFavorites.artists.some(
+      (item) => item.id === current.id && item.serverId === artistServerId.value,
+    );
+  if (current.source !== "netease") return false;
   return userStore.artists.some((item) => String(item.id) === String(current.id));
 });
 
@@ -171,10 +187,17 @@ const artistSubBusy = ref(false);
 
 const handleToggleSubscribe = async (): Promise<void> => {
   const current = artist.value;
-  if (!current || current.source !== "netease" || artistSubBusy.value) return;
+  if (!current || !canSubscribeArtist.value || artistSubBusy.value) return;
   artistSubBusy.value = true;
   try {
-    await userStore.toggleArtistSubscribe(current.id, !isArtistSubscribed.value);
+    if (current.source === "streaming" && artistServerId.value) {
+      await streaming.setCollectionFavorite(
+        "artist",
+        artistServerId.value,
+        current.id,
+        !isArtistSubscribed.value,
+      );
+    } else await userStore.toggleArtistSubscribe(current.id, !isArtistSubscribed.value);
   } catch (err) {
     toast.error(err instanceof Error && err.message ? err.message : t("liked.toast.failed"));
   } finally {
@@ -196,16 +219,16 @@ const handleMoreMenu = (key: string) => {
   if (key === "batchManage") songListRef.value?.enterBatch();
 };
 
-type ArtistTab = "songs" | "albums";
+type ArtistTab = "songs" | "albums" | "timeline";
 
-const ARTIST_TAB_KEYS: readonly ArtistTab[] = ["songs", "albums"];
+const ARTIST_TAB_KEYS: readonly ArtistTab[] = ["albums", "songs", "timeline"];
 
 /** 当前 tab */
 const activeTab = computed<ArtistTab>(() => {
   const tab = route.query.tab;
   return typeof tab === "string" && (ARTIST_TAB_KEYS as readonly string[]).includes(tab)
     ? (tab as ArtistTab)
-    : "songs";
+    : "albums";
 });
 
 const onTabSwitch = (key: string): void => {
@@ -216,13 +239,11 @@ watch(activeTab, (tab) => {
   if (tab === "albums") collapsed.value = true;
 });
 
-const tabs = computed(() => {
-  const items = [{ key: "songs", label: t("artist.songs") }];
-  if (artist.value?.albums.length) {
-    items.push({ key: "albums", label: t("artist.albums") });
-  }
-  return items;
-});
+const tabs = computed(() => [
+  { key: "albums", label: t("artist.albums") },
+  { key: "songs", label: t("artist.songs") },
+  { key: "timeline", label: t("organization.timeline") },
+]);
 
 const albumItems = computed<CoverItem[]>(() => {
   if (!artist.value?.albums.length) return [];
@@ -348,17 +369,20 @@ const albumItems = computed<CoverItem[]>(() => {
         </div>
       </div>
       <!-- Tab 切换 -->
-      <STabs
-        :model-value="activeTab"
-        :tabs="tabs"
-        type="bar"
-        size="large"
-        @update:model-value="onTabSwitch"
-      />
+      <div class="flex items-center justify-between gap-4 flex-wrap">
+        <STabs
+          :model-value="activeTab"
+          :tabs="tabs"
+          type="bar"
+          size="large"
+          @update:model-value="onTabSwitch"
+        />
+        <div ref="albumToolsTarget" class="flex-1 flex justify-end min-w-0" />
+      </div>
     </div>
     <Transition name="fade" mode="out-in" :duration="150">
       <div
-        v-if="artist && artist.tracks.length > 0"
+        v-if="artist && (artist.tracks.length > 0 || artist.albums.length > 0)"
         :key="artist.id"
         class="flex-1 min-h-0 flex flex-col"
       >
@@ -382,12 +406,22 @@ const albumItems = computed<CoverItem[]>(() => {
             />
           </div>
           <!-- 专辑网格 -->
-          <div v-else-if="activeTab === 'albums'" key="albums" class="flex-1 min-h-0">
-            <CoverList
+          <div
+            v-else-if="activeTab === 'albums' || activeTab === 'timeline'"
+            key="albums"
+            class="flex-1 min-h-0"
+          >
+            <AlbumOrganization
               :items="albumItems"
-              :padding-x="20"
-              :padding-bottom="24"
-              @click="
+              :toolbar-target="albumToolsTarget"
+              :tracks="artist?.tracks"
+              :timeline="activeTab === 'timeline'"
+              :server-id="
+                source === 'streaming' && typeof route.query.serverId === 'string'
+                  ? route.query.serverId
+                  : undefined
+              "
+              @open-album="
                 (item) =>
                   navigateToAlbum(item.title, {
                     source,

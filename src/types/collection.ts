@@ -12,6 +12,8 @@ export interface Collection {
   type: CollectionType;
   /** 数据来源 */
   source: TrackSource;
+  /** 流媒体合集所属服务器，避免相同原始 ID 串库 */
+  serverId?: string;
   /** 标题 */
   title: string;
   /** 封面 */

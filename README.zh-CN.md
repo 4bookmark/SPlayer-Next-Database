@@ -1,3 +1,5 @@
+> **个人定制 Fork（2026-11-21）**：本仓库保存 macOS、统一媒体源音乐库、分类合并、收藏与局域网输出等定制改动。功能、构建与验证说明见 [个人定制存档](docs/custom/README.zh-CN.md)，安装包见 [本 Fork 的 Releases](https://github.com/4bookmark/SPlayer-Next-Database/releases)
+
 <div align="center">
 
 <img alt="SPlayer-Next logo" width="120" height="120" src="public/icons/favicon.png" />

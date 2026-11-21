@@ -8,6 +8,30 @@ import type {
 /** 主进程流媒体协议适配器 */
 export interface StreamingAdapter {
   /**
+   * 读取多封面扩展清单，未声明扩展时返回 undefined
+   * @param config - 已鉴权配置
+   * @param albumId - 服务端专辑 ID
+   * @returns 当前层的图片清单
+   */
+  getAlbumArtworks?(
+    config: StreamingRuntimeConfig,
+    albumId: string,
+  ): Promise<RemoteAlbumArtwork[] | undefined>;
+  /**
+   * 生成只在主进程使用的图片请求地址
+   * @param config - 已鉴权配置
+   * @param albumId - 专辑 ID
+   * @param artworkId - 不透明图片 ID
+   * @param size - 缩略图尺寸，省略读取原图
+   * @returns 附带鉴权的 HTTP 地址
+   */
+  getAlbumArtworkUrl?(
+    config: StreamingRuntimeConfig,
+    albumId: string,
+    artworkId: string,
+    size?: number,
+  ): Promise<string>;
+  /**
    * 生成原始文件下载地址，由服务端检查下载权限
    * @param config - 已鉴权配置
    * @param trackId - 服务端歌曲 ID
@@ -151,6 +175,13 @@ export interface StreamingAdapter {
     size: number,
     tag?: string,
   ): Promise<string>;
+}
+
+/** gonic 私有多封面扩展中的服务端图片身份 */
+export interface RemoteAlbumArtwork {
+  id: string;
+  name: string;
+  version: string;
 }
 
 export interface StreamingPlaybackSource {

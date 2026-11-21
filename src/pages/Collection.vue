@@ -29,6 +29,7 @@ const id = route.params.id as string;
 
 /** 按合集类型隔离排序偏好 */
 const sortKey = computed<SongListSortKey>(() => `collection.${type}`);
+const albumTrackView = useLocalStorage<"compact" | "cards">("splayer-album-track-view", "compact");
 
 const collection = shallowRef<Collection | null>(null);
 const preview = getCoverPreview(route.fullPath);
@@ -257,7 +258,25 @@ onBeforeUnmount(() => {
         :class="collapsed ? 'gap-3' : 'gap-5'"
       >
         <!-- 封面 -->
+        <AlbumArtworkGallery
+          v-if="source === 'streaming' && type === 'album' && collection?.tracks[0]?.serverId"
+          :server-id="collection.tracks[0].serverId"
+          :album-id="id"
+          :src="coverSource"
+          :original="collection.tracks[0]?.coverOriginal"
+          :fallback="preview?.cover"
+          :alt="header.title"
+          data-cover-hero
+          class="rounded-xl shrink-0 transition-[width,height] duration-300"
+          :class="collapsed ? 'size-20' : 'size-40'"
+          @saved="
+            (cover) => {
+              if (collection) collection = { ...collection, cover };
+            }
+          "
+        />
         <DetailCover
+          v-else
           :src="coverSource"
           :fallback="preview?.cover"
           :alt="header.title"
@@ -278,6 +297,31 @@ onBeforeUnmount(() => {
               >
                 {{ header.title }}
               </h1>
+              <SButton
+                v-if="type === 'album'"
+                variant="ghost"
+                circle
+                :title="
+                  t(
+                    albumTrackView === 'compact'
+                      ? 'collection.switchToCards'
+                      : 'collection.switchToCompact',
+                  )
+                "
+                :aria-label="
+                  t(
+                    albumTrackView === 'compact'
+                      ? 'collection.switchToCards'
+                      : 'collection.switchToCompact',
+                  )
+                "
+                @click="albumTrackView = albumTrackView === 'compact' ? 'cards' : 'compact'"
+              >
+                <template #icon>
+                  <IconLucideLayoutList v-if="albumTrackView === 'compact'" />
+                  <IconLucideList v-else />
+                </template>
+              </SButton>
               <div
                 class="flex shrink-0 items-center gap-1 text-primary"
                 :aria-label="`${scopeLabel} · ${typeLabel}`"
@@ -426,6 +470,7 @@ onBeforeUnmount(() => {
         <SongList
           ref="songListRef"
           :items="collection.tracks"
+          :compact="type === 'album' && albumTrackView === 'compact'"
           :search-query="searchQuery"
           :show-album="type !== 'album'"
           :show-size="source === 'local'"

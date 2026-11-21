@@ -13,6 +13,17 @@ interface AlbumRow {
 }
 
 /**
+ * 使用组合主键检查专辑归属，不读取完整曲库
+ * @param serverId - 服务器 ID
+ * @param albumId - 服务端专辑 ID
+ * @returns 专辑是否存在
+ */
+export const hasAlbum = (serverId: string, albumId: string): boolean =>
+  !!getDb()
+    .prepare("SELECT 1 FROM remote_albums WHERE server_id = ? AND remote_id = ? LIMIT 1")
+    .get(serverId, albumId);
+
+/**
  * 批量写入流媒体专辑
  * @param records - 流媒体专辑记录
  */

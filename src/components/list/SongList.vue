@@ -23,6 +23,8 @@ const props = withDefaults(
   defineProps<{
     /** 歌曲列表数据 */
     items: Track[];
+    /** 专辑单行视图，不显示封面和副信息 */
+    compact?: boolean;
     /** 搜索关键词 */
     searchQuery?: string;
     /** 显示序号 */
@@ -53,6 +55,7 @@ const props = withDefaults(
     loadingMore?: boolean;
   }>(),
   {
+    compact: false,
     searchQuery: "",
     showIndex: true,
     showAlbum: true,
@@ -300,10 +303,12 @@ const batch = useMultiSelect(sortedItems, {
 const { deleteConfirmOpen, deleteDialogTitle, deleteDialogContent } = batch;
 
 /** 是否使用紧凑列表样式 */
-const isCompactList = computed(() => settings.appearance.songListStyle === "compact");
+const isCompactList = computed(
+  () => props.compact || settings.appearance.songListStyle === "compact",
+);
 
 /** 歌曲行高度 */
-const rowHeight = computed(() => (isCompactList.value ? 56 : 88));
+const rowHeight = computed(() => (props.compact ? 48 : isCompactList.value ? 56 : 88));
 
 /** 碟片标题行高度 */
 const DISC_HEADER_HEIGHT = 40;
@@ -325,6 +330,13 @@ const discItemHeights = computed(() => {
 const trackRowClass = (item: Track): string[] => {
   const selected = batch.active.value && batch.selectedIds.value.has(item.id);
   const playing = playingId.value === item.id;
+
+  if (props.compact) {
+    return [
+      "group flex items-center gap-3 pl-3 pr-4 h-12 cursor-pointer border-b border-solid border-outline-variant/15 transition-colors duration-150",
+      selected ? "bg-primary/10" : playing ? "bg-primary/8" : "hover:bg-on-surface/4",
+    ];
+  }
 
   if (isCompactList.value) {
     return [
@@ -492,7 +504,10 @@ defineExpose({
               v-if="batch.active.value"
               class="flex items-center gap-2 pl-3 pr-3 mx-3 h-10 text-sm"
             >
-              <div v-if="showIndex" class="w-8 shrink-0 flex items-center justify-center">
+              <div
+                v-if="showIndex || compact"
+                class="w-8 shrink-0 flex items-center justify-center"
+              >
                 <SCheckbox
                   :checked="batch.isAllSelected.value"
                   :indeterminate="batch.isPartial.value"
@@ -534,7 +549,7 @@ defineExpose({
                 <span>{{ t("songList.batch.download") }}</span>
               </SButton>
               <SButton
-                v-if="source === 'local' || source === 'netease'"
+                v-if="source === 'local' || source === 'netease' || source === 'streaming'"
                 variant="ghost"
                 size="small"
                 :disabled="batch.selectedCount.value === 0"
@@ -593,7 +608,10 @@ defineExpose({
                   : 'pl-3 pr-6 mx-3 h-10 border-2 border-solid border-transparent'
               "
             >
-              <div v-if="showIndex" class="w-8 shrink-0 flex items-center justify-center">
+              <div
+                v-if="showIndex || compact"
+                class="w-8 shrink-0 flex items-center justify-center"
+              >
                 <span>#</span>
               </div>
               <div class="flex-1 min-w-0">
@@ -650,14 +668,20 @@ defineExpose({
                   {{ t("songList.title") }}
                 </div>
               </div>
-              <div v-if="showAlbum" class="flex-1 min-w-0">{{ t("songList.album") }}</div>
-              <div class="w-12 shrink-0 text-center whitespace-nowrap">
+              <div v-if="showAlbum && !compact" class="flex-1 min-w-0">
+                {{ t("songList.album") }}
+              </div>
+              <div v-if="compact" class="w-12 shrink-0" />
+              <div v-else class="w-12 shrink-0 text-center whitespace-nowrap">
                 {{ t("songList.actions") }}
               </div>
               <div v-if="showDuration" class="w-16 shrink-0 text-center">
                 {{ t("songList.duration") }}
               </div>
-              <div v-if="showSize" class="w-16 shrink-0 text-center">{{ t("songList.size") }}</div>
+              <div v-if="showSize && !compact" class="w-16 shrink-0 text-center">
+                {{ t("songList.size") }}
+              </div>
+              <div v-if="compact" class="w-8 shrink-0" />
             </div>
           </div>
         </template>
@@ -698,7 +722,7 @@ defineExpose({
             >
               <!-- 序号 / 多选 -->
               <div
-                v-if="showIndex"
+                v-if="showIndex || compact"
                 class="w-8 shrink-0 flex items-center justify-center relative"
                 :class="
                   batch.active.value
@@ -717,6 +741,19 @@ defineExpose({
                   @update:checked="batch.toggle(item.id)"
                   @click.stop
                 />
+                <button
+                  v-else-if="compact"
+                  type="button"
+                  class="size-8 bg-transparent border-0 appearance-none text-inherit flex items-center justify-center rounded-full hover:bg-on-surface/8"
+                  :aria-label="t('settings.hotkeys.actions.togglePlay')"
+                  @click.stop="onPlayClick(item, index)"
+                >
+                  <IconLucidePause
+                    v-if="playingId === item.id && status.isPlaying"
+                    class="size-4"
+                  />
+                  <IconLucidePlay v-else class="size-4" />
+                </button>
                 <!-- 普通模式 -->
                 <template v-else>
                   <span
@@ -744,6 +781,7 @@ defineExpose({
               <!-- 信息 -->
               <div class="flex-1 min-w-0 flex items-center gap-3">
                 <SImg
+                  v-if="!compact"
                   :src="item.cover"
                   :class="['shrink-0', isCompactList ? 'size-9 rounded-md' : 'size-12 rounded-lg']"
                 />
@@ -766,7 +804,7 @@ defineExpose({
                       "
                     />
                     <span
-                      v-if="item.comment && settings.preset.showSubtitle"
+                      v-if="!compact && item.comment && settings.preset.showSubtitle"
                       class="flex-1 min-w-0 text-base truncate"
                       :class="
                         playingId === item.id ? 'text-primary/60' : 'text-on-surface-variant/60'
@@ -776,6 +814,7 @@ defineExpose({
                     </span>
                   </div>
                   <div
+                    v-if="!compact"
                     :class="[
                       'truncate flex items-center gap-1',
                       isCompactList ? 'text-xs mt-0.5' : 'text-sm mt-1',
@@ -843,7 +882,7 @@ defineExpose({
               </div>
               <!-- 专辑 -->
               <div
-                v-if="showAlbum"
+                v-if="showAlbum && !compact"
                 class="flex-1 min-w-0 truncate text-sm"
                 :class="playingId === item.id ? 'text-primary/70' : 'text-on-surface'"
               >
@@ -889,12 +928,33 @@ defineExpose({
               </div>
               <!-- 文件大小 -->
               <div
-                v-if="showSize"
+                v-if="showSize && !compact"
                 class="w-16 shrink-0 text-center text-sm tabular-nums"
                 :class="playingId === item.id ? 'text-primary/60' : 'text-on-surface-variant'"
               >
                 {{ item.fileSize ? formatFileSize(item.fileSize) : "" }}
               </div>
+              <SDropdownMenu
+                v-if="compact && !batch.active.value"
+                :items="contextMenuItems"
+                align="end"
+                @select="onContextMenu"
+              >
+                <template #trigger>
+                  <button
+                    type="button"
+                    class="size-8 bg-transparent border-0 appearance-none text-inherit shrink-0 flex items-center justify-center rounded-full text-on-surface-variant hover:bg-on-surface/8"
+                    :aria-label="t('songList.actions')"
+                    @pointerdown.stop="contextTrack = item"
+                    @keydown="contextTrack = item"
+                    @click="contextTrack = item"
+                    @dblclick.stop
+                  >
+                    <IconLucideEllipsis class="size-4" />
+                  </button>
+                </template>
+              </SDropdownMenu>
+              <div v-else-if="compact" class="w-8 shrink-0" />
             </div>
           </div>
         </template>

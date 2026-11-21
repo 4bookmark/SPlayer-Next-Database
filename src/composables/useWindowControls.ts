@@ -11,6 +11,11 @@ export const useWindowControls = () => {
   const isMaximized = ref(false);
   const isFullscreen = ref(false);
   const isBorderless = computed(() => settings.system.system.borderlessWindow);
+  const { width: viewportWidth } = useWindowSize();
+  /** 原生按钮不随网页缩放，保留对应的 CSS 宽度 */
+  const nativeTitlebarInset = computed(() =>
+    Math.ceil((104 * viewportWidth.value) / window.outerWidth),
+  );
 
   const minimize = (): void => window.api.window.minimize();
   const toggleMaximize = (): void => window.api.window.toggleMaximize();
@@ -80,6 +85,7 @@ export const useWindowControls = () => {
     isMaximized,
     isFullscreen,
     isBorderless,
+    nativeTitlebarInset,
     minimize,
     toggleMaximize,
     toggleFullscreen,

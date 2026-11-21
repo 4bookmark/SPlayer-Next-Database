@@ -15,6 +15,8 @@ const mocks = vi.hoisted(() => {
   return { instances, MockPlayer, release: vi.fn(), pin: vi.fn(), invalidate: vi.fn() };
 });
 
+vi.mock("./output/controller", () => ({ createOutputFacade: (native: unknown) => native }));
+
 vi.mock("@main/utils/nativeLoader", () => ({
   loadNativeModule: () => ({
     AudioPlayer: mocks.MockPlayer,

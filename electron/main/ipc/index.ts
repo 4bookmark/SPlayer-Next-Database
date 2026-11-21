@@ -1,3 +1,4 @@
+import { registerOutputIpc } from "./output";
 import { registerSystemIpc } from "./system";
 import { registerPlayerIpc } from "./player";
 import { registerConfigIpc } from "./config";
@@ -33,6 +34,7 @@ import { registerAutoMixIpc } from "./automix";
 export const registerIpcHandlers = (onStartupComplete: () => void): void => {
   registerSystemIpc();
   registerPlayerIpc();
+  registerOutputIpc();
   registerAutoMixIpc();
   registerConfigIpc();
   registerLibraryIpc();

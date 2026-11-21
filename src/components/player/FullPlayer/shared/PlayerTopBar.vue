@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { isMac } from "@/utils/config";
 import type { PlayerLayout } from "@/types/settings";
 import { useSettingsStore } from "@/stores/settings";
 import { useWindowControls } from "@/composables/useWindowControls";
@@ -15,7 +16,7 @@ const LAYOUT_OPTIONS: { value: PlayerLayout; labelKey: string }[] = [
 const { t } = useI18n();
 const settings = useSettingsStore();
 const { immersive, onBarEnter, onBarLeave } = useFullPlayer();
-const { isFullscreen, toggleFullscreen } = useWindowControls();
+const { isBorderless, isFullscreen, nativeTitlebarInset, toggleFullscreen } = useWindowControls();
 
 /** 布局弹层是否打开；打开期间顶栏保持可见 */
 const layoutPopoverOpen = ref(false);
@@ -34,7 +35,12 @@ const selectLayout = (layout: PlayerLayout): void => {
   <div
     data-player-layout="top-bar"
     class="absolute top-0 inset-x-0 h-14 z-10 app-drag-region transition-opacity duration-400 flex items-center justify-between px-3"
-    :class="immersive && !layoutPopoverOpen ? 'opacity-0 pointer-events-none' : 'opacity-100'"
+    :class="[immersive && !layoutPopoverOpen ? 'opacity-0 pointer-events-none' : 'opacity-100']"
+    :style="
+      isMac && isBorderless && !isFullscreen
+        ? { paddingLeft: `${nativeTitlebarInset}px` }
+        : undefined
+    "
     @mouseenter="onBarEnter"
     @mouseleave="onBarLeave"
   >

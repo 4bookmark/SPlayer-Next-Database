@@ -30,6 +30,33 @@ beforeEach(() => {
 const response = (body: unknown): Response => new Response(JSON.stringify(body), { status: 200 });
 
 describe("流媒体协议契约", () => {
+  it("Subsonic 保留媒体库文件路径用于整理，但不将其用作本地播放路径", async () => {
+    const libraryPath = "D:\\Music\\Live\\Record\\01.flac";
+    fetchMock.mockResolvedValue(
+      response({
+        "subsonic-response": {
+          status: "ok",
+          searchResult3: {
+            song: [
+              { id: "song", title: "Song", album: "Record", albumId: "record", path: libraryPath },
+            ],
+          },
+        },
+      }),
+    );
+    const [track] = await subsonicAdapter.listSongs({ ...config, type: "subsonic" });
+    expect(track).toMatchObject({
+      id: "server:song",
+      originalId: "song",
+      source: "streaming",
+      libraryPath,
+      album: { id: "record" },
+    });
+    expect(track?.path).toBeUndefined();
+    expect(new URL(await subsonicAdapter.getStreamUrl(config, track!.originalId!)).pathname).toBe(
+      "/prefix/rest/stream",
+    );
+  });
   it.each(["jellyfin", "emby"] as const)(
     "%s 歌单按条目 ID 分页，保留重复歌曲和原顺序",
     async (type) => {

@@ -6,6 +6,8 @@ import { captureCover } from "@/services/coverTransition";
 export interface CoverCardProps {
   /** 卡片数据 */
   item: CoverItem;
+  selecting?: boolean;
+  selected?: boolean;
   /** 类型：default / artist */
   type?: "default" | "artist";
   /** 封面圆角 class */
@@ -25,7 +27,7 @@ const coverKey = computed(() => `${props.type}:${props.item.id}`);
 
 /** 记录封面后分发点击，由实际目标路由决定是否启用共享过渡 */
 const handleClick = (): void => {
-  captureCover(props.item, coverKey.value);
+  if (!props.selecting) captureCover(props.item, coverKey.value);
   emit("click");
 };
 
@@ -37,6 +39,11 @@ const actualFallback = computed(() => (props.type === "artist" ? artistFallback 
   <div
     class="cursor-pointer group rounded-xl transition-colors duration-300"
     :class="type !== 'artist' ? 'hover:bg-primary/10' : ''"
+    role="button"
+    tabindex="0"
+    :aria-pressed="selecting ? Boolean(selected) : undefined"
+    @keydown.enter.prevent="handleClick"
+    @keydown.space.prevent="handleClick"
     @click="handleClick"
   >
     <!-- 封面 -->
@@ -49,8 +56,16 @@ const actualFallback = computed(() => (props.type === "artist" ? artistFallback 
         class="cover-card-image w-full aspect-square transition-[transform,filter] duration-300 ease-out group-hover:scale-108 group-hover:brightness-80"
         :class="coverRounded"
       />
+      <span
+        v-if="selecting && selected"
+        class="absolute inset-0 bg-primary/65 text-on-primary flex items-center justify-center"
+        aria-hidden="true"
+      >
+        <IconLucideCheck class="size-12" :stroke-width="2.5" />
+      </span>
       <!-- 播放按钮 -->
       <div
+        v-if="!selecting"
         data-cover-action
         class="absolute size-9 flex items-center justify-center rounded-full opacity-0 transition-[opacity,transform] duration-300 group-hover:opacity-100"
         :class="

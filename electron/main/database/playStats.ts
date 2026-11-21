@@ -165,8 +165,7 @@ export const getTopTracks = (limit: number): TopTrack[] => {
       .prepare(
         `SELECT track_json, COUNT(*) AS plays
          FROM play_history
-         WHERE source != 'streaming'
-         GROUP BY source, track_id
+         GROUP BY source, track_id, COALESCE(json_extract(track_json, '$.serverRevision'), 0)
          ORDER BY plays DESC, MAX(started_at) DESC
          LIMIT ?`,
       )
@@ -193,17 +192,17 @@ export const getRecentTracks = (limit: number): Track[] => {
       .prepare(
         `SELECT source, track_id, track_json
          FROM play_history
-         WHERE source != 'streaming'
          ORDER BY started_at DESC`,
       )
       .iterate() as IterableIterator<{ source: string; track_id: string; track_json: string }>;
     const seen = new Set<string>();
     const tracks: Track[] = [];
     for (const row of rows) {
-      const key = `${row.source}:${row.track_id}`;
+      const track = JSON.parse(row.track_json) as Track;
+      const key = `${row.source}:${row.track_id}:${track.serverRevision ?? 0}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      tracks.push(JSON.parse(row.track_json) as Track);
+      tracks.push(track);
       if (tracks.length >= limit) break;
     }
     return tracks;
@@ -265,7 +264,7 @@ export const getPlayHistoryHourly = (): HourlyPlayStats[] => {
 };
 
 /**
- * 取本地与在线来源中最常播放的专辑
+ * 取全部来源中最常播放的专辑
  * @param limit - 取前 N 条
  * @returns 专辑播放排行
  */
@@ -275,9 +274,10 @@ export const getTopAlbums = (limit: number): TopAlbum[] => {
       .prepare(
         `SELECT track_json, COUNT(*) AS plays
          FROM play_history
-         WHERE source != 'streaming'
-           AND TRIM(COALESCE(json_extract(track_json, '$.album.name'), '')) != ''
+         WHERE TRIM(COALESCE(json_extract(track_json, '$.album.name'), '')) != ''
          GROUP BY source,
+                  COALESCE(json_extract(track_json, '$.serverId'), ''),
+                  COALESCE(json_extract(track_json, '$.serverRevision'), 0),
                   COALESCE(
                     json_extract(track_json, '$.album.id'),
                     json_extract(track_json, '$.album.name')
@@ -300,7 +300,7 @@ export const getTopAlbums = (limit: number): TopAlbum[] => {
 };
 
 /**
- * 取本地与在线来源中最常播放的歌手
+ * 取全部来源中最常播放的歌手
  * @param limit - 取前 N 条
  * @returns 歌手播放排行
  */
@@ -310,9 +310,10 @@ export const getTopArtists = (limit: number): TopArtist[] => {
       .prepare(
         `SELECT track_json, artist.value AS artist_json, COUNT(*) AS plays
          FROM play_history, json_each(play_history.track_json, '$.artists') artist
-         WHERE play_history.source != 'streaming'
-           AND TRIM(COALESCE(json_extract(artist.value, '$.name'), '')) != ''
+         WHERE TRIM(COALESCE(json_extract(artist.value, '$.name'), '')) != ''
          GROUP BY play_history.source,
+                  COALESCE(json_extract(play_history.track_json, '$.serverId'), ''),
+                  COALESCE(json_extract(play_history.track_json, '$.serverRevision'), 0),
                   COALESCE(
                     json_extract(artist.value, '$.id'),
                     LOWER(json_extract(artist.value, '$.name'))

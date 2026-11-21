@@ -7,6 +7,8 @@ import { albumsToCoverItems } from "@/utils/format/coverItem";
 
 const { t } = useI18n();
 const router = useRouter();
+const route = useRoute();
+const toolbarTarget = inject<Ref<HTMLElement | null>>("streamingToolbarTarget", ref(null));
 const streaming = useStreamingStore();
 const { albums, loading, isConnected } = storeToRefs(streaming);
 
@@ -39,13 +41,12 @@ const handleClick = (item: CoverItem): void => {
 
 <template>
   <div class="h-full">
-    <CoverList
+    <AlbumOrganization
       v-if="albums.length > 0"
       :items="items"
-      :padding-x="20"
-      :padding-top="8"
-      :padding-bottom="20"
-      @click="handleClick"
+      :toolbar-target="route.path === '/streaming/albums' ? toolbarTarget : null"
+      :server-id="streaming.activeServerId ?? undefined"
+      @open-album="handleClick"
     />
     <div v-else class="h-full flex items-center justify-center">
       <div class="text-center text-on-surface-variant/60">

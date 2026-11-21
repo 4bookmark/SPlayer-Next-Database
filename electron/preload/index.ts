@@ -1,3 +1,5 @@
+import type { OutputState } from "@shared/types/output";
+import type { OrganizationAction } from "@shared/types/streaming";
 import os from "os";
 import type { PlaybackQueueSnapshot } from "@shared/types/music";
 import { contextBridge, ipcRenderer, webUtils } from "electron";
@@ -699,7 +701,46 @@ const api = {
         ipcRenderer.invoke("cache:song:cancel", cacheKey),
     },
   },
+  output: {
+    scan: () => ipcRenderer.invoke("output:scan"),
+    getState: () => ipcRenderer.invoke("output:getState"),
+    selectTarget: (id: string) => ipcRenderer.invoke("output:select", id),
+    disconnect: () => ipcRenderer.invoke("output:select", "local"),
+    onState: (callback: (state: OutputState) => void) => {
+      ipcRenderer.removeAllListeners("output:state");
+      return subscribe<OutputState>("output:state", callback);
+    },
+  },
   streaming: {
+    /** 读取全部已同步媒体源的整理后目录 */
+    getCatalog: () => ipcRenderer.invoke("streaming:getCatalog"),
+    /** 读取所有媒体源喜欢的歌曲和本地合集收藏 */
+    getSavedFavorites: () => ipcRenderer.invoke("streaming:getSavedFavorites"),
+    /**
+     * 读取最近一次专辑图片扫描的可用状态
+     * @param serverId - 服务器 ID
+     * @param albumId - 原始专辑 ID
+     * @returns 已发现图片数量与不可读文件名
+     */
+    getAlbumArtworkStatus: (serverId: string, albumId: string) =>
+      ipcRenderer.invoke("streaming:getAlbumArtworkStatus", serverId, albumId),
+    /**
+     * 保存已确认的专辑封面
+     * @param serverId - 服务器 ID
+     * @param albumId - 原始专辑 ID
+     * @param artworkId - 图片 ID，空字符串恢复默认
+     * @returns 更新后的图片列表
+     */
+    setAlbumArtwork: (serverId: string, albumId: string, artworkId: string) =>
+      ipcRenderer.invoke("streaming:setAlbumArtwork", serverId, albumId, artworkId),
+    /**
+     * 读取专辑目录中的附加图片
+     * @param serverId - 服务器 ID
+     * @param albumId - 专辑 ID
+     * @returns 图片缩略图与原图地址
+     */
+    getAlbumArtworks: (serverId: string, albumId: string) =>
+      ipcRenderer.invoke("streaming:getAlbumArtworks", serverId, albumId),
     /**
      * 获取服务端收藏状态
      * @param serverId - 服务器 ID
@@ -784,6 +825,8 @@ const api = {
      * @returns 断开完成
      */
     disconnect: (serverId: string) => ipcRenderer.invoke("streaming:disconnect", serverId),
+    organize: (serverId: string, action: OrganizationAction) =>
+      ipcRenderer.invoke("streaming:organize", serverId, action),
     getSnapshot: (serverId: string) => ipcRenderer.invoke("streaming:getSnapshot", serverId),
     sync: (serverId: string, force?: boolean): Promise<boolean> =>
       ipcRenderer.invoke("streaming:sync", serverId, force),

@@ -1,66 +1,41 @@
 <script setup lang="ts">
 defineOptions({ name: "StreamingArtists" });
-
 import type { CoverItem } from "@/types/artist";
 import { useStreamingStore } from "@/stores/streaming";
-import { artistToCoverItem } from "@/utils/format/coverItem";
-
-const { t } = useI18n();
 const router = useRouter();
+const route = useRoute();
 const streaming = useStreamingStore();
-const { artists, loading, isConnected } = storeToRefs(streaming);
-
+const { artists, loading, isConnected, organization } = storeToRefs(streaming);
+const toolbarTarget = inject<Ref<HTMLElement | null>>("streamingToolbarTarget", ref(null));
 const refreshKey = inject<{ value: number }>("streamingRefreshKey", { value: 0 });
-
+/** 请求当前媒体源同步，实际数据更新由 store 的快照事件驱动 */
 const refresh = (force = false): void => {
-  if (!isConnected.value) return;
-  streaming.refreshLibrary(force);
+  if (isConnected.value) void streaming.refreshLibrary(force);
 };
-
 watch(refreshKey, () => refresh(true));
-watch(isConnected, (v) => v && refresh());
+watch(isConnected, (connected) => connected && refresh());
 onMounted(() => {
-  if (isConnected.value && artists.value.length === 0) refresh();
+  if (isConnected.value && !artists.value.length) refresh();
 });
-
-const items = computed<CoverItem[]>(() =>
-  artists.value.map((a) => ({
-    ...artistToCoverItem(a),
-    subtitle: a.albumCount ? t("common.totalAlbums", { count: a.albumCount }) : "",
-  })),
-);
-
 /**
- * 打开当前服务器的歌手
- * @param item - 歌手封面条目
+ * 打开当前媒体源的原始歌手身份
+ * @param item - 歌手卡片
  */
-const handleClick = (item: CoverItem): void => {
+const openArtist = (item: CoverItem): void => {
   router.push({
     path: `/artist/streaming/${encodeURIComponent(item.id)}`,
     query: { serverId: streaming.activeServerId ?? undefined },
   });
 };
 </script>
-
 <template>
-  <div class="h-full">
-    <CoverList
-      v-if="artists.length > 0"
-      :items="items"
-      type="artist"
-      :min-size="120"
-      :padding-x="20"
-      :padding-top="8"
-      :padding-bottom="20"
-      @click="handleClick"
-    />
-    <div v-else class="h-full flex items-center justify-center">
-      <div class="text-center text-on-surface-variant/60">
-        <IconLucideUserRound class="size-12 mx-auto mb-3 opacity-30" />
-        <div class="text-sm">
-          {{ loading ? t("common.loading") : t("streaming.empty.noResults") }}
-        </div>
-      </div>
-    </div>
-  </div>
+  <ArtistOrganization
+    :artists="artists"
+    :organization="organization"
+    :loading="loading"
+    :server-id="streaming.activeServerId ?? undefined"
+    :toolbar-target="route.path === '/streaming/artists' ? toolbarTarget : null"
+    @open-artist="openArtist"
+    @updated="streaming.refreshCatalog()"
+  />
 </template>

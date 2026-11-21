@@ -92,6 +92,7 @@ export interface StreamingSearchResult {
 
 /** 流媒体服务器媒体快照 */
 export interface StreamingLibrarySnapshot {
+  organization?: StreamingOrganization;
   /** 全量歌曲列表 */
   songs: Track[];
   /** 全量专辑列表 */
@@ -102,8 +103,64 @@ export interface StreamingLibrarySnapshot {
   playlists: Playlist[];
 }
 
+/** 所有已配置媒体源的统一目录，合集保留所属服务器 */
+export interface StreamingCatalog {
+  /** 各服务器的本地分类、合并和主封面规则 */
+  organizations?: Record<string, StreamingOrganization>;
+  songs: Track[];
+  albums: Album[];
+  artists: Artist[];
+}
+
+/** 各媒体服务器的喜欢与本地合集收藏 */
+export type StreamingSavedFavorites = StreamingCatalog;
+
+/** 最近一次专辑目录扫描的图片可用状态 */
+export interface AlbumArtworkStatus {
+  found: number;
+  unavailable: string[];
+  error?: "directory-unavailable" | "extension-unavailable" | "request-failed" | "auth-failed";
+}
+
+/** 专辑目录中的附加图片，路径仅在主进程保存 */
+export interface AlbumArtwork {
+  /** 当前已保存的封面选择 */
+  selected?: boolean;
+  id: string;
+  name: string;
+  thumbnail: string;
+  original: string;
+}
+
 /** 渲染进程通过 contextBridge 调用的流媒体 API */
 export interface StreamingApi {
+  /** 读取全部已同步媒体源目录，沿用合并和主封面整理规则 */
+  getCatalog(): Promise<StreamingCatalog>;
+  /** 读取所有已配置服务器的收藏，不发起网络请求 */
+  getSavedFavorites(): Promise<StreamingSavedFavorites>;
+  /**
+   * 读取最近一次图片扫描状态，区分不可读图片与空目录
+   * @param serverId - 服务器 ID
+   * @param albumId - 原始专辑 ID
+   * @returns 文件数量与不可用图片名
+   */
+  getAlbumArtworkStatus(serverId: string, albumId: string): Promise<AlbumArtworkStatus>;
+  /**
+   * 保存专辑封面选择，空 ID 恢复服务端默认封面
+   * @param serverId - 服务器 ID
+   * @param albumId - 原始专辑 ID
+   * @param artworkId - 已枚举的稳定图片 ID
+   * @returns 含已选状态的图片列表
+   */
+  setAlbumArtwork(serverId: string, albumId: string, artworkId: string): Promise<AlbumArtwork[]>;
+  /**
+   * 读取专辑目录的图片
+   * @param serverId - 服务器 ID
+   * @param albumId - 专辑 ID
+   * @returns 有界图片列表
+   */
+  getAlbumArtworks(serverId: string, albumId: string): Promise<AlbumArtwork[]>;
+  organize(serverId: string, action: OrganizationAction): Promise<StreamingLibrarySnapshot>;
   /**
    * 读取服务端收藏状态
    * @param serverId - 服务器 ID
@@ -264,3 +321,45 @@ export interface StreamingSyncState {
   state: "running" | "completed" | "cancelled" | "failed";
   error?: string;
 }
+
+/** 当前服务器的本地整理规则，不修改远端文件 */
+/** 主进程验证后保存的专辑封面，图片路径不接受渲染进程输入 */
+export interface AlbumArtworkChoice {
+  /** 新版通过 gonic HTTP 获取，未标记的旧版挂载选择不再应用 */
+  source?: "gonic-http";
+  file: string;
+  thumbnail: string;
+  id: string;
+  root: string;
+}
+
+export interface StreamingOrganization {
+  /** 本地收藏的原始专辑与歌手 ID，随服务器身份隔离 */
+  favoriteAlbumIds?: string[];
+  favoriteArtistIds?: string[];
+  /** 服务器隔离的持久化封面选择 */
+  albumArtworkChoices?: Record<string, AlbumArtworkChoice>;
+  /** 此服务器的只读挂载曲库目录 */
+  artworkRoot?: string;
+  artistGroups: { targetId: string; memberIds: string[] }[];
+  /** 歌手自定义分类，与专辑分类分别维护 */
+  artistCategoryDefinitions?: { id: string; name: string }[];
+  /** 原始歌手 ID 对应的分类，合并时保留各成员原值 */
+  artistCategories?: Record<string, string>;
+  categories: { id: string; name: string }[];
+  albumCategories: Record<string, string>;
+}
+
+export type OrganizationAction =
+  | { type: "favorite-album"; id: string; favorite: boolean }
+  | { type: "favorite-artist"; id: string; favorite: boolean }
+  | { type: "merge"; selectedIds: string[]; targetId: string }
+  | { type: "unmerge"; targetId: string }
+  | { type: "artist-category-create"; name: string }
+  | { type: "artist-category-rename"; id: string; name: string }
+  | { type: "artist-category-delete"; id: string }
+  | { type: "artist-classify"; artistIds: string[]; categoryId: string }
+  | { type: "category-create"; name: string }
+  | { type: "category-rename"; id: string; name: string }
+  | { type: "category-delete"; id: string }
+  | { type: "classify"; albumIds: string[]; categoryId: string };

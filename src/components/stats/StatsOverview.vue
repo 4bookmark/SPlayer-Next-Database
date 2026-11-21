@@ -134,6 +134,9 @@ const overviewCards = computed<OverviewCard[]>(() => {
         </div>
         <div class="truncate text-xs mt-1 text-on-surface-variant/50">
           {{ t(`stats.${card.key}`) }}
+          <span v-if="card.key === 'totalSize' && stats?.unknownFileSizeCount" class="block mt-1">
+            {{ t("stats.knownSizeOnly", { count: stats.unknownFileSizeCount }) }}
+          </span>
         </div>
       </div>
     </SCard>

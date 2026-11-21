@@ -52,6 +52,8 @@ export interface Album {
   artist?: string;
   /** 曲目数 */
   trackCount?: number;
+  /** 媒体库中的专辑目录，仅用于整理元数据 */
+  folderPaths?: string[];
   /** 发行年份 */
   year?: number;
 }
@@ -106,6 +108,8 @@ export interface Track {
   };
   /** 本地路径 */
   path?: string;
+  /** 服务端媒体库文件路径，仅用于整理元数据，不可作为本地播放路径 */
+  libraryPath?: string;
   /** CUE 文件路径 */
   cuePath?: string;
   /** CUE 分轨对应的真实音频路径 */

@@ -13,6 +13,25 @@ interface TrackRow {
 }
 
 /**
+ * 按全局歌曲 ID 精确解析媒体源歌单引用
+ * @param ids - 含服务器前缀的歌曲 ID
+ * @returns 仍在当前曲库中的歌曲
+ */
+export const getStreamingTracksByIds = (ids: string[]): Track[] => {
+  const query = getDb().prepare(
+    "SELECT data FROM remote_tracks WHERE server_id = ? AND remote_id = ?",
+  );
+  return [...new Set(ids)].flatMap((id) => {
+    const separator = id.indexOf(":");
+    if (separator <= 0) return [];
+    const row = query.get(id.slice(0, separator), id.slice(separator + 1)) as TrackRow | undefined;
+    if (!row) return [];
+    const track = JSON.parse(row.data) as Track;
+    return track.source === "streaming" && track.id === id ? [track] : [];
+  });
+};
+
+/**
  * 更新已缓存歌曲的收藏状态，不创建缺少元数据的占位曲目
  * @param serverId - 服务器 ID
  * @param remoteId - 服务端歌曲 ID

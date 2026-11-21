@@ -1,9 +1,18 @@
+import {
+  organizeLibrary,
+  getArtistMembers,
+  decorateDetails,
+} from "@main/services/streaming/organization";
+import type { OrganizationAction } from "@shared/types/streaming";
+import { sendToMain } from "@main/utils/broadcast";
 import { ipcMain } from "electron";
 import { isDbOpen } from "@main/database";
 import {
   deleteLibraryByServer,
   getLibrarySnapshot,
   searchLibrary,
+  getSavedStreamingFavorites,
+  getStreamingCatalog,
 } from "@main/services/streaming/library";
 import {
   addStreamingServer,
@@ -23,11 +32,34 @@ import { invalidateStreamingSession } from "@main/services/streaming/adapters/re
 import { cancelStreamingSync, queueStreamingSync } from "@main/services/streaming/sync";
 import type { StreamingServerInput } from "@shared/types/streaming";
 import { requestStreamingFavorite } from "@main/services/streaming/favorites";
+import {
+  getAlbumArtworks,
+  getAlbumArtworkStatus,
+  setAlbumArtwork,
+} from "@main/services/streaming/artwork";
 import { stopStreamingPlayer } from "./player";
 
 /** 注册流媒体 IPC 和封面协议 */
 export const registerStreamingIpc = (): void => {
+  ipcMain.handle("streaming:getCatalog", getStreamingCatalog);
+  ipcMain.handle("streaming:getSavedFavorites", getSavedStreamingFavorites);
   registerStreamingCoverProtocol();
+  ipcMain.handle("streaming:getAlbumArtworkStatus", (_event, serverId: string, albumId: string) =>
+    getAlbumArtworkStatus(serverId, albumId),
+  );
+  ipcMain.handle(
+    "streaming:setAlbumArtwork",
+    (_event, serverId: string, albumId: string, artworkId: string) =>
+      setAlbumArtwork(serverId, albumId, artworkId),
+  );
+  ipcMain.handle("streaming:getAlbumArtworks", (_event, serverId: string, albumId: string) =>
+    getAlbumArtworks(serverId, albumId),
+  );
+  ipcMain.handle("streaming:organize", (_event, serverId: string, action: OrganizationAction) => {
+    organizeLibrary(serverId, action);
+    sendToMain("streaming:libraryUpdated", serverId);
+    return getLibrarySnapshot(serverId);
+  });
 
   ipcMain.handle("streaming:loadServers", getStreamingConfig);
   ipcMain.handle("streaming:addServer", (_event, input: StreamingServerInput) =>
@@ -94,18 +126,39 @@ export const registerStreamingIpc = (): void => {
     searchLibrary(serverId, query.slice(0, 200)),
   );
   ipcMain.handle("streaming:getAlbumSongs", (_event, serverId: string, albumId: string) =>
-    withStreamingAdapter(serverId, (config, adapter) => adapter.getAlbumSongs(config, albumId)),
+    withStreamingAdapter(
+      serverId,
+      async (config, adapter) =>
+        decorateDetails(serverId, await adapter.getAlbumSongs(config, albumId)).songs,
+    ),
   );
   ipcMain.handle("streaming:getPlaylistSongs", (_event, serverId: string, playlistId: string) =>
     withStreamingAdapter(serverId, (config, adapter) =>
-      adapter.getPlaylistSongs(config, playlistId),
+      adapter
+        .getPlaylistSongs(config, playlistId)
+        .then((songs) => decorateDetails(serverId, songs).songs),
     ),
   );
   ipcMain.handle("streaming:getArtistAlbums", (_event, serverId: string, artistId: string) =>
-    withStreamingAdapter(serverId, (config, adapter) => adapter.getArtistAlbums(config, artistId)),
+    withStreamingAdapter(serverId, async (config, adapter) => {
+      const albums = (
+        await Promise.all(
+          getArtistMembers(serverId, artistId).map((id) => adapter.getArtistAlbums(config, id)),
+        )
+      ).flat();
+      return decorateDetails(serverId, [], [...new Map(albums.map((a) => [a.id, a])).values()])
+        .albums;
+    }),
   );
   ipcMain.handle("streaming:getArtistSongs", (_event, serverId: string, artistId: string) =>
-    withStreamingAdapter(serverId, (config, adapter) => adapter.getArtistSongs(config, artistId)),
+    withStreamingAdapter(serverId, async (config, adapter) => {
+      const songs = (
+        await Promise.all(
+          getArtistMembers(serverId, artistId).map((id) => adapter.getArtistSongs(config, id)),
+        )
+      ).flat();
+      return decorateDetails(serverId, [...new Map(songs.map((a) => [a.id, a])).values()]).songs;
+    }),
   );
   ipcMain.handle(
     "streaming:getLyrics",

@@ -7,6 +7,7 @@ import type { DropdownMenuItem } from "@/components/ui/SDropdownMenu.vue";
 import { useLibraryStore } from "@/stores/library";
 import { useUserStore } from "@/stores/user";
 import { useStatusStore } from "@/stores/status";
+import { useStreamingStore } from "@/stores/streaming";
 import SongList from "@/components/list/SongList.vue";
 import * as player from "@/core/player";
 import IconLucideListChecks from "~icons/lucide/list-checks";
@@ -16,6 +17,7 @@ const { t } = useI18n();
 const library = useLibraryStore();
 const user = useUserStore();
 const status = useStatusStore();
+const streaming = useStreamingStore();
 
 /** 当前 tab */
 const tab = computed({
@@ -24,7 +26,7 @@ const tab = computed({
 });
 
 const tabs = computed(() => [
-  { key: "local", label: t("liked.tabs.local") },
+  { key: "local", label: t("liked.tabs.library") },
   { key: "online", label: t("liked.tabs.online") },
 ]);
 
@@ -38,7 +40,7 @@ const localTracks = computed<Track[]>(() => {
     const track = byId.get(id);
     if (track) list.push(track);
   }
-  return list;
+  return [...streaming.savedFavorites.songs, ...list];
 });
 
 watch(
@@ -79,6 +81,10 @@ const handlePlayAll = (): void => {
 
 onMounted(() => {
   if (!library.initialized) library.load();
+  void streaming.init().then(() => streaming.refreshSavedFavorites());
+});
+onActivated(() => {
+  void streaming.refreshSavedFavorites();
 });
 
 const songListRef = shallowRef<InstanceType<typeof SongList> | null>(null);

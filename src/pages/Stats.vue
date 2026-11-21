@@ -21,7 +21,8 @@ const topAlbums = shallowRef<TopAlbum[]>([]);
 const topArtists = shallowRef<TopArtist[]>([]);
 const loading = ref(true);
 
-onMounted(async () => {
+/** 刷新概览和全部来源的实际播放记录 */
+const loadStats = async (): Promise<void> => {
   try {
     const [library, history, hourlyHistory, songs, albums, artists] = await Promise.all([
       window.api.stats.getLibraryStats(),
@@ -40,6 +41,10 @@ onMounted(async () => {
   } finally {
     loading.value = false;
   }
+};
+onMounted(loadStats);
+onActivated(() => {
+  if (!loading.value) void loadStats();
 });
 </script>
 

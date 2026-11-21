@@ -2,7 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import type { Album, Artist, Playlist, Track } from "@shared/types/player";
 import type { StreamingPingResult } from "@shared/types/streaming";
 import type { StreamingRuntimeConfig } from "@shared/types/streaming";
-import type { StreamingAdapter } from "./types";
+import type { RemoteAlbumArtwork, StreamingAdapter } from "./types";
 import { StreamingRequestError, isUnsupportedEndpoint } from "../errors";
 import { toStreamingLyrics } from "../lyrics";
 import { streamPages } from "../pagination";
@@ -14,6 +14,7 @@ const REQUEST_TIMEOUT_MS = 15_000;
 
 interface SubsonicSong {
   starred?: string;
+  path?: string;
   id: string;
   title: string;
   artist?: string;
@@ -172,6 +173,7 @@ const toTrack = (config: StreamingRuntimeConfig, song: SubsonicSong): Track => {
     source: "streaming",
     serverId: config.id,
     originalId: song.id,
+    libraryPath: song.path,
     serverRevision: config.mediaRevision ?? 0,
     favorite: Boolean(song.starred),
     title: song.title || "",
@@ -239,6 +241,68 @@ const toPlaylist = (config: StreamingRuntimeConfig, playlist: SubsonicPlaylist):
 });
 
 export const subsonicAdapter: StreamingAdapter = {
+  /**
+   * 通过服务端声明发现多封面能力，不探测本机挂载目录
+   * @param config - 主进程配置
+   * @param albumId - 原始专辑 ID
+   * @returns 当前层图片清单，缺少扩展时返回 undefined
+   */
+  async getAlbumArtworks(config, albumId) {
+    let extensions: { openSubsonicExtensions?: { name: string; versions: number[] }[] };
+    try {
+      extensions = await callApi(config, "getOpenSubsonicExtensions");
+    } catch (error) {
+      if (isUnsupportedEndpoint(error)) return undefined;
+      throw error;
+    }
+    if (
+      !extensions.openSubsonicExtensions?.some(
+        (extension) => extension.name === "splayerAlbumArtworks" && extension.versions.includes(1),
+      )
+    )
+      return undefined;
+    const result = await callApi<{ albumArtworks?: { artwork?: RemoteAlbumArtwork[] } }>(
+      config,
+      "getAlbumArtworks",
+      { id: albumId },
+    );
+    const pictures = result.albumArtworks?.artwork;
+    if (
+      !Array.isArray(pictures) ||
+      pictures.length > 64 ||
+      pictures.some(
+        (picture) =>
+          !picture ||
+          typeof picture.id !== "string" ||
+          !/^[a-f0-9]{64}$/.test(picture.id) ||
+          typeof picture.name !== "string" ||
+          !picture.name ||
+          picture.name.length > 255 ||
+          typeof picture.version !== "string" ||
+          !picture.version ||
+          picture.version.length > 128,
+      ) ||
+      new Set(pictures.map((picture) => picture.id)).size !== pictures.length
+    )
+      throw new Error("服务器返回的多封面清单无效");
+    return pictures.map(({ id, name, version }) => ({ id, name, version }));
+  },
+
+  /**
+   * 生成 gonic 图片读取地址，鉴权参数仅留在主进程
+   * @param config - 主进程配置
+   * @param albumId - 原始专辑 ID
+   * @param artworkId - 图片 ID
+   * @param size - 缩略图尺寸，省略读取原图
+   * @returns 真实 HTTP 地址
+   */
+  async getAlbumArtworkUrl(config, albumId, artworkId, size) {
+    return buildUrl(config, "getAlbumArtwork", {
+      id: albumId,
+      artworkId,
+      ...(size ? { size } : {}),
+    });
+  },
   /**
    * 下载服务器保存的原始文件，不采用播放转码配置
    * @param config - 已鉴权配置

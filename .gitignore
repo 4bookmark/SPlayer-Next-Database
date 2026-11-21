@@ -30,3 +30,9 @@ package-lock.json
 # Code signing certificates
 *.pfx
 *.p12
+
+# 本机构建的 AirPlay 辅助进程
+native/airplay-helper/airplay-helper
+
+# 本机构建的 Bonjour 发现辅助进程
+native/lan-discovery/lan-discovery

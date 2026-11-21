@@ -1,3 +1,4 @@
+import { isRemoteOutput, setOutputTrack, closeOutputs } from "@main/services/output/controller";
 import {
   prepareNextTrack,
   cancelPreparedTrack,
@@ -205,7 +206,9 @@ const registerNativeEvents = (inst: InstanceType<AudioEngineModule["AudioPlayer"
             inst.getSpeed(),
           ),
         );
-        const readyId = takeTransitionReady(endPosition - posMs, inst.getSpeed(), inst.getPitch());
+        const readyId = isRemoteOutput()
+          ? undefined
+          : takeTransitionReady(endPosition - posMs, inst.getSpeed(), inst.getPitch());
         if (readyId) {
           sendToMain("player:event", {
             type: "transitionReady",
@@ -411,6 +414,7 @@ export const registerPlayerIpc = (): void => {
       preference?: TransitionPreference,
       options?: AutoMixPrepareOptions,
     ): Promise<PreparedTrackResult> => {
+      if (isRemoteOutput()) return { ready: false };
       const ready = await prepareNextTrack(id, source, startMs, preference, options);
       const plan = ready ? getPreparedAutoMixPlan(id) : undefined;
       return {
@@ -548,6 +552,7 @@ export const registerPlayerIpc = (): void => {
     cancelPendingReinit();
     const autoPlay = options.autoPlay ?? true;
     const authoritative = options.meta ?? null;
+    setOutputTrack(authoritative ?? undefined);
     const cueRange = cueRangeFromTrack(authoritative);
     const preparedAutoMix = options.preparedId
       ? getPreparedAutoMixPlan(options.preparedId)
@@ -1161,6 +1166,7 @@ export const registerPlayerIpc = (): void => {
   powerMonitor.on("resume", resumeHandler);
   // 退出前停止设备监听并释放休眠抑制
   app.on("before-quit", () => {
+    closeOutputs();
     stopDeviceMonitoring();
     releasePowerBlocker();
   });

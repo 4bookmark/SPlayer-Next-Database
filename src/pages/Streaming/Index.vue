@@ -34,13 +34,15 @@ const {
   playlists,
 } = storeToRefs(streaming);
 const settingsDialog = useSettingsDialog();
+const toolbarTarget = ref<HTMLElement | null>(null);
+provide("streamingToolbarTarget", toolbarTarget);
 
 streaming.init();
 
 const tabs = computed(() => [
-  { key: "/streaming/songs", label: t("streaming.tabs.songs") },
-  { key: "/streaming/albums", label: t("streaming.tabs.albums") },
   { key: "/streaming/artists", label: t("streaming.tabs.artists") },
+  { key: "/streaming/albums", label: t("streaming.tabs.albums") },
+  { key: "/streaming/songs", label: t("streaming.tabs.songs") },
   { key: "/streaming/playlists", label: t("streaming.tabs.playlists") },
 ]);
 
@@ -48,7 +50,7 @@ const activeTab = computed(() => {
   for (const tab of tabs.value) {
     if (route.path.startsWith(tab.key)) return tab.key;
   }
-  return "/streaming/songs";
+  return "/streaming/artists";
 });
 
 const switchTab = (key: string): void => {
@@ -182,7 +184,10 @@ const handleMoreMenu = (key: string): void => {
         </div>
       </div>
       <!-- Tabs -->
-      <STabs :model-value="activeTab" :tabs="tabs" @update:model-value="switchTab" />
+      <div class="flex items-center justify-between gap-4 flex-wrap">
+        <STabs :model-value="activeTab" :tabs="tabs" @update:model-value="switchTab" />
+        <div ref="toolbarTarget" class="flex-1 flex justify-end min-w-0" />
+      </div>
       <div v-if="syncError" role="alert" class="text-xs text-red-500 mt-2">{{ syncError }}</div>
     </div>
     <!-- 空状态：未配置服务器 -->

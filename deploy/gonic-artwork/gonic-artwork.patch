@@ -1,0 +1,589 @@
+diff --git a/server/ctrlsubsonic/ctrl.go b/server/ctrlsubsonic/ctrl.go
+index 8bd9b81..e6d3e86 100644
+--- a/server/ctrlsubsonic/ctrl.go
++++ b/server/ctrlsubsonic/ctrl.go
+@@ -112,6 +112,9 @@ func New(dbc *db.DB, scannr *scanner.Scanner, scanNonAdmin bool, musicPaths []Mu
+ 	c.Handle("/ping", chain(resp(c.ServePing)))
+ 	c.Handle("/getOpenSubsonicExtensions", chain(resp(c.ServeGetOpenSubsonicExtensions)))
+ 
++	c.Handle("/getAlbumArtworks", chain(resp(c.ServeGetAlbumArtworks)))
++	c.Handle("/getAlbumArtwork", chainRaw(respRaw(c.ServeGetAlbumArtwork)))
++
+ 	c.Handle("/getMusicFolders", chain(resp(c.ServeGetMusicFolders)))
+ 	c.Handle("/getScanStatus", chain(resp(c.ServeGetScanStatus)))
+ 	c.Handle("/scrobble", chain(resp(c.ServeScrobble)))
+diff --git a/server/ctrlsubsonic/handlers_common.go b/server/ctrlsubsonic/handlers_common.go
+index d3aeb62..658f7b2 100644
+--- a/server/ctrlsubsonic/handlers_common.go
++++ b/server/ctrlsubsonic/handlers_common.go
+@@ -51,6 +51,7 @@ func (c *Controller) ServeGetOpenSubsonicExtensions(_ *http.Request) *spec.Respo
+ 		{Name: "songLyrics", Versions: []int{1}},
+ 		{Name: "topSongsByArtistId", Versions: []int{1}},
+ 		{Name: "transcoding", Versions: []int{1}},
++		{Name: "splayerAlbumArtworks", Versions: []int{1}},
+ 	}
+ 	return sub
+ }
+diff --git a/server/ctrlsubsonic/spec/spec.go b/server/ctrlsubsonic/spec/spec.go
+index 9f1d266..e3e82bb 100644
+--- a/server/ctrlsubsonic/spec/spec.go
++++ b/server/ctrlsubsonic/spec/spec.go
+@@ -56,10 +56,21 @@ type SubsonicResponse struct {
+ 	Response Response `xml:"subsonic-response"       json:"subsonic-response"`
+ }
+ 
++type AlbumArtwork struct {
++	ID      string `xml:"id,attr" json:"id"`
++	Name    string `xml:"name,attr" json:"name"`
++	Version string `xml:"version,attr" json:"version"`
++}
++
++type AlbumArtworks struct {
++	Artwork []AlbumArtwork `xml:"artwork" json:"artwork"`
++}
++
+ type Response struct {
+-	Status  string `xml:"status,attr"           json:"status"`
+-	Version string `xml:"version,attr"          json:"version"`
+-	XMLNS   string `xml:"xmlns,attr"            json:"-"`
++	AlbumArtworks *AlbumArtworks `xml:"albumArtworks" json:"albumArtworks,omitempty"`
++	Status        string         `xml:"status,attr"           json:"status"`
++	Version       string         `xml:"version,attr"          json:"version"`
++	XMLNS         string         `xml:"xmlns,attr"            json:"-"`
+ 
+ 	// https://opensubsonic.github.io/docs/responses/subsonic-response/
+ 	Type                   string                  `xml:"type,attr"              json:"type"`
+diff --git a/server/ctrlsubsonic/handlers_album_artworks.go b/server/ctrlsubsonic/handlers_album_artworks.go
+new file mode 100644
+index 0000000..aa68992
+--- /dev/null
++++ b/server/ctrlsubsonic/handlers_album_artworks.go
+@@ -0,0 +1,328 @@
++package ctrlsubsonic
++
++import (
++	"bytes"
++	"crypto/sha256"
++	"encoding/hex"
++	"fmt"
++	"image"
++	_ "image/gif"
++	_ "image/jpeg"
++	"image/png"
++	"io"
++	"net/http"
++	"os"
++	"path/filepath"
++	"slices"
++	"strconv"
++	"strings"
++
++	"github.com/disintegration/imaging"
++	_ "golang.org/x/image/bmp"
++	_ "golang.org/x/image/webp"
++
++	"go.senan.xyz/gonic/db"
++	"go.senan.xyz/gonic/server/ctrlsubsonic/params"
++	"go.senan.xyz/gonic/server/ctrlsubsonic/spec"
++	"go.senan.xyz/gonic/server/ctrlsubsonic/specid"
++)
++
++const (
++	maxAlbumArtworks           = 64
++	maxAlbumArtworkBytes       = 32 << 20
++	maxAlbumArtworkPixels      = 40_000_000
++	maxAlbumArtworkHeaderBytes = 1 << 20
++)
++
++// 同时最多解码两张原图，限制并行缩略图请求的峰值内存。
++var albumArtworkDecodeSlots = make(chan struct{}, 2)
++
++// ServeGetAlbumArtworks 使用数据库目录与现有账号鉴权，不接收客户端路径。
++func (c *Controller) ServeGetAlbumArtworks(r *http.Request) *spec.Response {
++	dir, failure := c.albumArtworkDirectory(r)
++	if failure != nil {
++		return failure
++	}
++	defer dir.Close()
++	artworks, err := listAlbumArtworks(dir)
++	if err != nil {
++		return spec.NewError(0, "could not read album artworks")
++	}
++	sub := spec.NewResponse()
++	sub.AlbumArtworks = &spec.AlbumArtworks{Artwork: artworks}
++	return sub
++}
++
++func (c *Controller) albumArtworkDirectory(r *http.Request) (*os.Root, *spec.Response) {
++	p := r.Context().Value(CtxParams).(params.Params)
++	id, err := p.GetID("id")
++	if err != nil || id.Type != specid.Album || id.Value <= 0 {
++		return nil, spec.NewError(10, "please provide an album `id`")
++	}
++	var album db.Album
++	if err := c.dbc.First(&album, id.Value).Error; err != nil {
++		return nil, spec.NewError(70, "album not found")
++	}
++	dir, err := c.openAlbumArtworkDirectory(&album)
++	if err != nil {
++		return nil, spec.NewError(70, "album artwork directory unavailable")
++	}
++	return dir, nil
++}
++
++// openAlbumArtworkDirectory 在音乐根目录内打开专辑，拒绝各级符号链接。
++// os.Root 还可防止检查后替换链接造成目录逃逸。
++func (c *Controller) openAlbumArtworkDirectory(album *db.Album) (*os.Root, error) {
++	allowed := false
++	for _, music := range c.musicPaths {
++		if filepath.Clean(music.Path) == filepath.Clean(album.RootDir) {
++			allowed = true
++			break
++		}
++	}
++	if !allowed {
++		return nil, fmt.Errorf("album root is not a configured music root")
++	}
++	if filepath.IsAbs(album.LeftPath) || filepath.IsAbs(album.RightPath) {
++		return nil, fmt.Errorf("absolute album path")
++	}
++	rel := filepath.Join(album.LeftPath, album.RightPath)
++	if !filepath.IsLocal(rel) {
++		return nil, fmt.Errorf("album path escapes root")
++	}
++	info, err := os.Lstat(album.RootDir)
++	if err != nil || !info.IsDir() {
++		return nil, fmt.Errorf("invalid music root")
++	}
++	root, err := os.OpenRoot(album.RootDir)
++	if err != nil {
++		return nil, err
++	}
++	for _, part := range strings.Split(rel, string(filepath.Separator)) {
++		if part == "." {
++			continue
++		}
++		before, err := root.Lstat(part)
++		if err != nil || !before.IsDir() || before.Mode()&os.ModeSymlink != 0 {
++			root.Close()
++			return nil, fmt.Errorf("invalid album directory")
++		}
++		child, err := root.OpenRoot(part)
++		if err != nil {
++			root.Close()
++			return nil, err
++		}
++		opened, err := child.Stat(".")
++		root.Close()
++		if err != nil || !os.SameFile(before, opened) {
++			child.Close()
++			return nil, fmt.Errorf("album directory changed")
++		}
++		root = child
++	}
++	return root, nil
++}
++
++func artworkPriority(name string) int {
++	switch strings.ToLower(strings.TrimSuffix(name, filepath.Ext(name))) {
++	case "cover":
++		return 0
++	case "folder":
++		return 1
++	case "front":
++		return 2
++	}
++	return 3
++}
++
++func artworkID(name string) string {
++	sum := sha256.Sum256([]byte(name))
++	return hex.EncodeToString(sum[:])
++}
++
++func artworkVersion(info os.FileInfo) string {
++	return fmt.Sprintf("%x-%x", info.ModTime().UnixNano(), info.Size())
++}
++
++func listAlbumArtworks(dir *os.Root) ([]spec.AlbumArtwork, error) {
++	f, err := dir.Open(".")
++	if err != nil {
++		return nil, err
++	}
++	defer f.Close()
++	entries, err := f.ReadDir(-1)
++	if err != nil {
++		return nil, err
++	}
++	slices.SortFunc(entries, func(a, b os.DirEntry) int {
++		if d := artworkPriority(a.Name()) - artworkPriority(b.Name()); d != 0 {
++			return d
++		}
++		if d := strings.Compare(strings.ToLower(a.Name()), strings.ToLower(b.Name())); d != 0 {
++			return d
++		}
++		return strings.Compare(a.Name(), b.Name())
++	})
++	artworks := make([]spec.AlbumArtwork, 0)
++	for _, entry := range entries {
++		if len(artworks) == maxAlbumArtworks {
++			break
++		}
++		if !entry.Type().IsRegular() || !supportedArtworkName(entry.Name()) {
++			continue
++		}
++		info, err := probeAlbumArtwork(dir, entry.Name())
++		if err != nil {
++			continue
++		}
++		artworks = append(artworks, spec.AlbumArtwork{ID: artworkID(entry.Name()), Name: entry.Name(), Version: artworkVersion(info)})
++	}
++	return artworks, nil
++}
++
++func supportedArtworkName(name string) bool {
++	switch strings.ToLower(filepath.Ext(name)) {
++	case ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp":
++		return true
++	}
++	return false
++}
++
++func openAlbumArtwork(dir *os.Root, name string) (*os.File, os.FileInfo, error) {
++	if filepath.Base(name) != name || !supportedArtworkName(name) {
++		return nil, nil, fmt.Errorf("invalid artwork name")
++	}
++	before, err := dir.Lstat(name)
++	if err != nil {
++		return nil, nil, err
++	}
++	if !before.Mode().IsRegular() || before.Size() > maxAlbumArtworkBytes {
++		return nil, nil, fmt.Errorf("invalid artwork file")
++	}
++	f, err := dir.Open(name)
++	if err != nil {
++		return nil, nil, err
++	}
++	info, err := f.Stat()
++	if err != nil || !info.Mode().IsRegular() || !os.SameFile(before, info) || info.Size() > maxAlbumArtworkBytes {
++		f.Close()
++		return nil, nil, fmt.Errorf("artwork changed")
++	}
++	return f, info, nil
++}
++
++func checkAlbumArtworkConfig(reader io.Reader) (string, error) {
++	cfg, format, err := image.DecodeConfig(reader)
++	if err != nil {
++		return "", err
++	}
++	switch format {
++	case "jpeg", "png", "gif", "bmp", "webp":
++	default:
++		return "", fmt.Errorf("unsupported artwork format")
++	}
++	if cfg.Width <= 0 || cfg.Height <= 0 || cfg.Width > maxAlbumArtworkPixels/cfg.Height {
++		return "", fmt.Errorf("artwork pixel limit")
++	}
++	return format, nil
++}
++
++// probeAlbumArtwork 仅扫描有界图片头；枚举不解码像素，也不读取音轨。
++func probeAlbumArtwork(dir *os.Root, name string) (os.FileInfo, error) {
++	f, info, err := openAlbumArtwork(dir, name)
++	if err != nil {
++		return nil, err
++	}
++	defer f.Close()
++	if _, err := checkAlbumArtworkConfig(io.LimitReader(f, maxAlbumArtworkHeaderBytes)); err != nil {
++		return nil, err
++	}
++	return info, nil
++}
++
++// readAlbumArtwork 仅完整解码被请求的图片，先在同一不可变字节快照上检查像素。
++func readAlbumArtwork(dir *os.Root, name string) ([]byte, image.Image, string, os.FileInfo, error) {
++	fail := func(err error) ([]byte, image.Image, string, os.FileInfo, error) { return nil, nil, "", nil, err }
++	f, info, err := openAlbumArtwork(dir, name)
++	if err != nil {
++		return fail(err)
++	}
++	defer f.Close()
++	data, err := io.ReadAll(io.LimitReader(f, maxAlbumArtworkBytes+1))
++	if err != nil {
++		return fail(err)
++	}
++	if len(data) > maxAlbumArtworkBytes {
++		return fail(fmt.Errorf("artwork too large"))
++	}
++	format, err := checkAlbumArtworkConfig(bytes.NewReader(data))
++	if err != nil {
++		return fail(err)
++	}
++	img, _, err := image.Decode(bytes.NewReader(data))
++	if err != nil {
++		return fail(err)
++	}
++	return data, img, format, info, nil
++}
++
++// ServeGetAlbumArtwork 重新枚举当前候选，仅允许服务端签发的不透明 ID。
++func (c *Controller) ServeGetAlbumArtwork(w http.ResponseWriter, r *http.Request) *spec.Response {
++	p := r.Context().Value(CtxParams).(params.Params)
++	id, err := p.Get("artworkId")
++	if err != nil || len(id) != 64 {
++		return spec.NewError(10, "please provide an `artworkId`")
++	}
++	size := 0
++	if raw, err := p.Get("size"); err == nil {
++		size, err = strconv.Atoi(raw)
++		if err != nil || size != 300 {
++			return spec.NewError(10, "size must be 300 or omitted")
++		}
++	}
++	dir, failure := c.albumArtworkDirectory(r)
++	if failure != nil {
++		return failure
++	}
++	defer dir.Close()
++	entries, err := listAlbumArtworks(dir)
++	if err != nil {
++		return spec.NewError(0, "could not read album artworks")
++	}
++	var selected *spec.AlbumArtwork
++	for i := range entries {
++		if entries[i].ID == id {
++			selected = &entries[i]
++			break
++		}
++	}
++	if selected == nil {
++		return spec.NewError(70, "album artwork not found")
++	}
++	select {
++	case albumArtworkDecodeSlots <- struct{}{}:
++		defer func() { <-albumArtworkDecodeSlots }()
++	case <-r.Context().Done():
++		return spec.NewError(0, "artwork request canceled")
++	}
++	data, img, format, info, err := readAlbumArtwork(dir, selected.Name)
++	if err != nil {
++		return spec.NewError(70, "album artwork unavailable")
++	}
++	mime := map[string]string{"jpeg": "image/jpeg", "png": "image/png", "gif": "image/gif", "bmp": "image/bmp", "webp": "image/webp"}[format]
++	if size > 0 {
++		var out bytes.Buffer
++		bound := min(size, max(img.Bounds().Dx(), img.Bounds().Dy()))
++		if err := png.Encode(&out, imaging.Fit(img, bound, bound, imaging.Lanczos)); err != nil {
++			return spec.NewError(0, "could not resize album artwork")
++		}
++		data = out.Bytes()
++		mime = "image/png"
++	}
++	w.Header().Set("Content-Type", mime)
++	w.Header().Set("X-Content-Type-Options", "nosniff")
++	w.Header().Set("Cache-Control", "private, no-cache")
++	w.Header().Set("ETag", fmt.Sprintf(`"%s-%s-%d"`, id, artworkVersion(info), size))
++	http.ServeContent(w, r, selected.Name, info.ModTime(), bytes.NewReader(data))
++	return nil
++}
+diff --git a/server/ctrlsubsonic/handlers_album_artworks_test.go b/server/ctrlsubsonic/handlers_album_artworks_test.go
+new file mode 100644
+index 0000000..19bcb45
+--- /dev/null
++++ b/server/ctrlsubsonic/handlers_album_artworks_test.go
+@@ -0,0 +1,194 @@
++package ctrlsubsonic
++
++import (
++	"bytes"
++	"encoding/binary"
++	"encoding/json"
++	"fmt"
++	"hash/crc32"
++	"image"
++	"image/png"
++	"net/http"
++	"net/http/httptest"
++	"net/url"
++	"os"
++	"path/filepath"
++	"testing"
++
++	"github.com/stretchr/testify/require"
++	"go.senan.xyz/gonic/server/ctrlsubsonic/spec"
++)
++
++func writeArtwork(t *testing.T, dir, name string) {
++	t.Helper()
++	f, err := os.Create(filepath.Join(dir, name))
++	require.NoError(t, err)
++	require.NoError(t, png.Encode(f, image.NewNRGBA(image.Rect(0, 0, 600, 400))))
++	require.NoError(t, f.Close())
++}
++
++func TestAlbumArtworkFilesystem(t *testing.T) {
++	dir := t.TempDir()
++	for _, name := range []string{"z.png", "Front.PNG", "folder.png", "cover.png", "a.png"} {
++		writeArtwork(t, dir, name)
++	}
++	require.NoError(t, os.WriteFile(filepath.Join(dir, "bad.png"), []byte("not an image"), 0600))
++	require.NoError(t, os.Mkdir(filepath.Join(dir, "child"), 0700))
++	writeArtwork(t, filepath.Join(dir, "child"), "hidden.png")
++	require.NoError(t, os.Symlink(filepath.Join(dir, "a.png"), filepath.Join(dir, "link.png")))
++	root, err := os.OpenRoot(dir)
++	require.NoError(t, err)
++	defer root.Close()
++	entries, err := listAlbumArtworks(root)
++	require.NoError(t, err)
++	var names []string
++	for _, a := range entries {
++		names = append(names, a.Name)
++		require.NotEmpty(t, a.Version)
++		require.NotContains(t, a.ID, a.Name)
++	}
++	require.Equal(t, []string{"cover.png", "folder.png", "Front.PNG", "a.png", "z.png"}, names)
++	old := entries[0]
++	writeArtwork(t, dir, "cover.png")
++	entries, err = listAlbumArtworks(root)
++	require.NoError(t, err)
++	require.Equal(t, old.ID, entries[0].ID)
++	require.NotEqual(t, old.Version, entries[0].Version)
++	for i := 0; i < 70; i++ {
++		writeArtwork(t, dir, fmt.Sprintf("extra-%02d.png", i))
++	}
++	entries, err = listAlbumArtworks(root)
++	require.NoError(t, err)
++	require.Len(t, entries, 64)
++}
++
++func artworkRouter(t *testing.T, f *fixture) *Controller {
++	t.Helper()
++	c, err := New(f.dbc, nil, false, f.contr.musicPaths, "", "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
++	require.NoError(t, err)
++	return c
++}
++
++func artworkRequest(c http.Handler, path string, q url.Values) *httptest.ResponseRecorder {
++	rr := httptest.NewRecorder()
++	c.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, path+"?"+q.Encode(), nil))
++	return rr
++}
++
++func TestAlbumArtworkHTTP(t *testing.T) {
++	f := newFixture(t)
++	c := artworkRouter(t, f)
++	dir := filepath.Join(f.albumEmpty.RootDir, f.albumEmpty.LeftPath, f.albumEmpty.RightPath)
++	require.NoError(t, os.MkdirAll(dir, 0700))
++	writeArtwork(t, dir, "cover.png")
++	q := url.Values{"f": {"json"}, "v": {"1.16.1"}, "c": {"test"}, "id": {f.albumEmpty.SID().String()}}
++	for _, p := range []string{"/getAlbumArtworks", "/getAlbumArtwork", "/getOpenSubsonicExtensions"} {
++		rr := artworkRequest(c, p, q)
++		require.Contains(t, rr.Body.String(), `"status":"failed"`)
++	}
++	q.Set("u", f.admin.Name)
++	q.Set("p", "wrong-password")
++	require.Contains(t, artworkRequest(c, "/getAlbumArtworks", q).Body.String(), `"status":"failed"`)
++	q.Set("p", f.admin.Password)
++	rr := artworkRequest(c, "/getAlbumArtworks", q)
++	var body struct {
++		Response spec.Response `json:"subsonic-response"`
++	}
++	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &body))
++	require.Equal(t, "ok", body.Response.Status)
++	require.Len(t, body.Response.AlbumArtworks.Artwork, 1)
++	id := body.Response.AlbumArtworks.Artwork[0].ID
++	q.Set("artworkId", id)
++	rr = artworkRequest(c, "/getAlbumArtwork", q)
++	require.Equal(t, "image/png", rr.Header().Get("Content-Type"))
++	require.Equal(t, "nosniff", rr.Header().Get("X-Content-Type-Options"))
++	cfg, _, err := image.DecodeConfig(bytes.NewReader(rr.Body.Bytes()))
++	require.NoError(t, err)
++	require.Equal(t, 600, cfg.Width)
++	q.Set("size", "300")
++	rr = artworkRequest(c, "/getAlbumArtwork", q)
++	cfg, _, err = image.DecodeConfig(bytes.NewReader(rr.Body.Bytes()))
++	require.NoError(t, err)
++	require.Equal(t, 300, cfg.Width)
++	require.Equal(t, 200, cfg.Height)
++	for _, bad := range []string{"../cover.png", "https://example.com/x", id + "x"} {
++		q.Set("artworkId", bad)
++		rr = artworkRequest(c, "/getAlbumArtwork", q)
++		require.Contains(t, rr.Body.String(), `"status":"failed"`)
++	}
++	q.Set("artworkId", id)
++	q.Set("size", "-1")
++	require.Contains(t, artworkRequest(c, "/getAlbumArtwork", q).Body.String(), `"status":"failed"`)
++	q.Del("size")
++	require.NoError(t, os.Remove(filepath.Join(dir, "cover.png")))
++	require.Contains(t, artworkRequest(c, "/getAlbumArtwork", q).Body.String(), `"code":70`)
++	q.Set("id", "al-9999999")
++	require.Contains(t, artworkRequest(c, "/getAlbumArtworks", q).Body.String(), `"code":70`)
++	q.Set("id", "tr-1")
++	require.Contains(t, artworkRequest(c, "/getAlbumArtworks", q).Body.String(), `"status":"failed"`)
++	rr = artworkRequest(c, "/getOpenSubsonicExtensions", q)
++	require.Contains(t, rr.Body.String(), `"name":"splayerAlbumArtworks","versions":[1]`)
++}
++
++func TestAlbumArtworkDirectoryContainment(t *testing.T) {
++	f := newFixture(t)
++	for _, path := range []string{"../../escape", "/outside"} {
++		f.albumEmpty.LeftPath = path
++		f.albumEmpty.RightPath = "album"
++		_, err := f.contr.openAlbumArtworkDirectory(&f.albumEmpty)
++		require.Error(t, err)
++	}
++	root := f.contr.musicPaths[0].Path
++	require.NoError(t, os.Symlink(t.TempDir(), filepath.Join(root, "linked")))
++	f.albumEmpty.RootDir = root
++	f.albumEmpty.LeftPath = ""
++	f.albumEmpty.RightPath = "linked"
++	_, err := f.contr.openAlbumArtworkDirectory(&f.albumEmpty)
++	require.Error(t, err)
++	f.albumEmpty.RootDir = t.TempDir()
++	f.albumEmpty.RightPath = "."
++	_, err = f.contr.openAlbumArtworkDirectory(&f.albumEmpty)
++	require.Error(t, err)
++}
++
++func TestAlbumArtworkSizeAndPixels(t *testing.T) {
++	dir := t.TempDir()
++	f, err := os.Create(filepath.Join(dir, "huge.png"))
++	require.NoError(t, err)
++	require.NoError(t, f.Truncate(maxAlbumArtworkBytes+1))
++	require.NoError(t, f.Close())
++	// PNG IHDR declares too many pixels: reject before attempting full allocation.
++	var b bytes.Buffer
++	require.NoError(t, png.Encode(&b, image.NewNRGBA(image.Rect(0, 0, 1, 1))))
++	data := b.Bytes()
++	data[16] = 0x7f
++	data[17] = 0xff
++	data[18] = 0xff
++	data[19] = 0xff
++	binary.BigEndian.PutUint32(data[29:33], crc32.ChecksumIEEE(data[12:29]))
++	require.NoError(t, os.WriteFile(filepath.Join(dir, "bomb.png"), data, 0600))
++	root, err := os.OpenRoot(dir)
++	require.NoError(t, err)
++	defer root.Close()
++	entries, err := listAlbumArtworks(root)
++	require.NoError(t, err)
++	require.Empty(t, entries)
++}
++
++func TestAlbumArtworkListingReadsHeadersOnly(t *testing.T) {
++	dir := t.TempDir()
++	writeArtwork(t, dir, "track.flac") // 即使内容像图片，音频扩展也不得读取。
++	var encoded bytes.Buffer
++	require.NoError(t, png.Encode(&encoded, image.NewNRGBA(image.Rect(0, 0, 10, 10))))
++	// IHDR 之后的数据损坏：枚举仅探测头部，实际图片请求必须完整校验。
++	require.NoError(t, os.WriteFile(filepath.Join(dir, "header.png"), encoded.Bytes()[:33], 0600))
++	root, err := os.OpenRoot(dir)
++	require.NoError(t, err)
++	defer root.Close()
++	entries, err := listAlbumArtworks(root)
++	require.NoError(t, err)
++	require.Len(t, entries, 1)
++	require.Equal(t, "header.png", entries[0].Name)
++	_, _, _, _, err = readAlbumArtwork(root, "header.png")
++	require.Error(t, err)
++}

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { isMac } from "@/utils/config";
+import { useResponsiveLayout } from "@/composables/useResponsiveLayout";
 import { useSettingsDialog } from "@/settings/useSettingsDialog";
 import { useWindowControls } from "@/composables/useWindowControls";
 import { useThemeStore } from "@/stores/theme";
@@ -17,7 +19,8 @@ const { t } = useI18n();
 const { show: showSettings } = useSettingsDialog();
 const theme = useThemeStore();
 const update = useUpdateStore();
-const { isBorderless } = useWindowControls();
+const { isBorderless, isFullscreen, nativeTitlebarInset } = useWindowControls();
+const { sidebarCollapsed } = useResponsiveLayout();
 
 /** 界面缩放弹窗开关 */
 const uiZoomOpen = ref(false);
@@ -57,7 +60,14 @@ const onMenuSelect = (key: string): void => {
 </script>
 
 <template>
-  <div class="flex items-center justify-between flex-1 h-full min-w-0 app-drag-region">
+  <div
+    class="flex items-center justify-between flex-1 h-full min-w-0 app-drag-region"
+    :style="
+      isMac && isBorderless && !isFullscreen && sidebarCollapsed
+        ? { paddingLeft: `${Math.max(0, nativeTitlebarInset - 76)}px` }
+        : undefined
+    "
+  >
     <!-- 左侧 -->
     <div class="flex items-center gap-2 sm:gap-3 min-w-0 shrink-0">
       <SButton
@@ -106,7 +116,7 @@ const onMenuSelect = (key: string): void => {
           </SButton>
         </template>
       </SDropdownMenu>
-      <SDivider v-if="isBorderless" vertical />
+      <SDivider v-if="isBorderless && !isMac" vertical />
       <WindowControls />
     </div>
     <UiZoomDialog v-model:open="uiZoomOpen" />

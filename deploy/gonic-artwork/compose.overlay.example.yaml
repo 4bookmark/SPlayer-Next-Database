@@ -1,0 +1,6 @@
+# 将 gonic 改成现有 compose 文件中的实际服务名。
+# overlay 仅替换镜像；音乐、数据库、缓存、播放列表路径与环境变量均沿用原配置。
+services:
+  gonic:
+    image: local/gonic:splayer-artworks-0.23.0
+    pull_policy: never

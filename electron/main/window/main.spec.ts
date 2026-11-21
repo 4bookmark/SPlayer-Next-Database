@@ -50,6 +50,7 @@ beforeEach(() => {
       mocks.main.emit("show");
     }),
     focus: vi.fn(),
+    setWindowButtonPosition: vi.fn(),
   });
   mocks.createWindow.mockClear();
   mocks.createWindow.mockImplementation(() => mocks.main);
@@ -172,3 +173,29 @@ it("macOS 全屏隐藏等待退出全屏事件，避免留下黑色空间", asyn
     Object.defineProperty(process, "platform", platform);
   }
 });
+
+it.each(["darwin", "win32", "linux"])(
+  "%s 采用对应平台的标题栏，macOS 使用左上角系统按钮",
+  async (platformName) => {
+    const platform = Object.getOwnPropertyDescriptor(process, "platform")!;
+    Object.defineProperty(process, "platform", { value: platformName });
+    try {
+      mocks.settings["system.borderlessWindow"] = true;
+      const service = await import("./main");
+      service.createMainWindow();
+      const options = mocks.createWindow.mock.calls.at(-1)?.[0];
+      if (platformName === "darwin") {
+        expect(options).toMatchObject({
+          frame: true,
+          titleBarStyle: "hiddenInset",
+          trafficLightPosition: { x: 18, y: 25 },
+        });
+      } else {
+        expect(options.frame).toBe(false);
+        expect(options).not.toHaveProperty("trafficLightPosition");
+      }
+    } finally {
+      Object.defineProperty(process, "platform", platform);
+    }
+  },
+);
